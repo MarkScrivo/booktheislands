@@ -9,6 +9,7 @@
  */
 
 import type * as admin from "../admin.js";
+import type * as ai_gemini from "../ai/gemini.js";
 import type * as auth from "../auth.js";
 import type * as availability_rules from "../availability/rules.js";
 import type * as availability_slots from "../availability/slots.js";
@@ -45,6 +46,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
+  "ai/gemini": typeof ai_gemini;
   auth: typeof auth;
   "availability/rules": typeof availability_rules;
   "availability/slots": typeof availability_slots;
