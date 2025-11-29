@@ -1,16 +1,19 @@
 /**
  * Gemini Live API Service
  * Handles WebSocket-based voice conversations with Gemini Live Audio
+ *
+ * Uses ephemeral tokens for secure authentication:
+ * - Token is generated server-side via Convex action
+ * - Token is short-lived (1 min to start, 30 min max session)
+ * - API key never exposed to browser
  */
 
 import { GoogleGenAI, Modality, LiveServerMessage } from "@google/genai";
 import { Listing } from "../types";
 import { AUDIO_CONFIG } from "./audioUtils";
 
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
-
 export interface LiveSessionConfig {
+  token: string; // Ephemeral token from backend
   listings: Listing[];
   conversationHistory: { role: 'user' | 'model'; text: string }[];
   onAudioData: (data: Int16Array) => void;
@@ -28,13 +31,11 @@ export interface LiveSession {
 
 /**
  * Create a Live Audio session with Gemini
+ * Uses ephemeral token for secure authentication
  */
 export async function createLiveSession(config: LiveSessionConfig): Promise<LiveSession> {
-  if (!ai) {
-    throw new Error("Gemini AI not initialized. Check your API key.");
-  }
-
   const {
+    token,
     listings,
     conversationHistory,
     onAudioData,
@@ -42,6 +43,13 @@ export async function createLiveSession(config: LiveSessionConfig): Promise<Live
     onError,
     onSessionEnd,
   } = config;
+
+  if (!token) {
+    throw new Error("Voice session token is required. Please try again.");
+  }
+
+  // Create AI client with ephemeral token
+  const ai = new GoogleGenAI({ apiKey: token });
 
   // Build listings context for voice mode
   // Keep it concise for voice (token limits) - only include essential info

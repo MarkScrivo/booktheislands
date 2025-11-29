@@ -7,6 +7,7 @@
 
 import { action } from "../_generated/server";
 import { v } from "convex/values";
+import { GoogleGenAI } from "@google/genai";
 
 // Helper function to intelligently filter relevant listings based on query
 const getRelevantListings = (
@@ -218,6 +219,57 @@ Keep it real and conversational. No bullet points or formal lists.`;
     } catch (error) {
       console.error("[Gemini] Error:", error);
       return "Sawadee cup! I'm having a little trouble connecting to the spirit of the islands right now. Please try again later.";
+    }
+  },
+});
+
+/**
+ * Create an ephemeral token for voice chat sessions
+ *
+ * This generates a short-lived token that the client can use to connect
+ * directly to Gemini Live API without exposing the main API key.
+ *
+ * Token properties:
+ * - Single use (1 session only)
+ * - 1 minute window to start connection
+ * - 30 minute max session duration
+ * - Locked to specific model and config
+ */
+export const createVoiceSession = action({
+  args: {},
+  handler: async (ctx) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      console.error("[Gemini Voice] API key not configured");
+      throw new Error("Voice chat is currently unavailable. Please contact support.");
+    }
+
+    try {
+      const client = new GoogleGenAI({ apiKey });
+
+      // Create ephemeral token with constraints for voice sessions
+      const token = await (client as any).authTokens.create({
+        config: {
+          uses: 1, // Single session only
+          expireTime: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30 min max
+          newSessionExpireTime: new Date(Date.now() + 60 * 1000).toISOString(), // 1 min to start
+          liveConnectConstraints: {
+            model: "gemini-2.5-flash-native-audio-preview-09-2025",
+            config: {
+              responseModalities: ["AUDIO"],
+              temperature: 0.7,
+            },
+          },
+          httpOptions: { apiVersion: "v1alpha" },
+        },
+      });
+
+      console.log("[Gemini Voice] Created ephemeral token successfully");
+      return { token: token.name };
+    } catch (error) {
+      console.error("[Gemini Voice] Error creating ephemeral token:", error);
+      throw new Error("Failed to initialize voice session. Please try again.");
     }
   },
 });
