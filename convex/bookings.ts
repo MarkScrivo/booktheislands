@@ -367,42 +367,6 @@ export const updateStatus = mutation({
 });
 
 /**
- * Update payment status
- * Internal use (called after payment processing)
- */
-export const updatePaymentStatus = mutation({
-  args: {
-    id: v.id("bookings"),
-    paymentStatus: v.union(
-      v.literal("pending"),
-      v.literal("paid"),
-      v.literal("refunded"),
-      v.literal("failed")
-    ),
-  },
-  handler: async (ctx, args) => {
-    const booking = await ctx.db.get(args.id);
-    if (!booking) {
-      throw new Error("Booking not found");
-    }
-
-    await ctx.db.patch(args.id, {
-      paymentStatus: args.paymentStatus,
-      updatedAt: Date.now(),
-    });
-
-    // If payment succeeded, confirm the booking
-    if (args.paymentStatus === "paid") {
-      await ctx.db.patch(args.id, {
-        status: "confirmed",
-      });
-    }
-
-    return args.id;
-  },
-});
-
-/**
  * Cancel a booking
  * Customer (if owns) or Vendor (if owns listing) or Admin
  */
