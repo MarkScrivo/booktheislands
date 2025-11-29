@@ -1,11 +1,14 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ChatMessage, Listing } from '../types';
+import { ChatMessage, Listing, TimeSlotComponentProps } from '../types';
 import { createLiveSession, LiveSession } from '../services/geminiLiveService';
 import { AudioRecorder, AudioPlayer, checkAudioSupport } from '../services/audioUtils';
 import { Sparkles, Send, X, Mic, MicOff, Volume2 } from 'lucide-react';
 import { useQuery, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
+import { Id } from '../convex/_generated/dataModel';
+import { ChatTimeSlots } from './chat/ChatTimeSlots';
+import { BookingModal } from './BookingModal';
 
 interface AIAssistantProps {
   listings: Listing[];
@@ -20,6 +23,10 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ listings }) => {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Booking modal state
+  const [bookingListing, setBookingListing] = useState<Listing | null>(null);
+  const [selectedSlotForBooking, setSelectedSlotForBooking] = useState<any | null>(null);
 
   // Voice mode state
   const [isVoiceMode, setIsVoiceMode] = useState(false);
@@ -235,7 +242,28 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ listings }) => {
         availabilityData: availabilityData || {},
       });
 
-      setMessages(prev => [...prev, { role: 'model', text: responseText }]);
+      // Check if response is JSON with component data
+      let parsedResponse: ChatMessage = { role: 'model', text: responseText };
+
+      try {
+        const trimmed = responseText.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+          const parsed = JSON.parse(trimmed);
+          if (parsed.component && parsed.component.type === 'time_slots') {
+            parsedResponse = {
+              role: 'model',
+              text: parsed.message || 'Here are the available times:',
+              component: parsed.component,
+            };
+          } else if (parsed.message) {
+            parsedResponse = { role: 'model', text: parsed.message };
+          }
+        }
+      } catch {
+        // Not JSON, use as plain text
+      }
+
+      setMessages(prev => [...prev, parsedResponse]);
     } catch (error) {
       console.error('Error calling Gemini:', error);
       setMessages(prev => [...prev, { role: 'model', text: "Sorry, I'm having trouble connecting right now. Please try again!" }]);
@@ -261,6 +289,38 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ listings }) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+  };
+
+  // Handle slot selection from ChatTimeSlots component
+  const handleSlotSelect = (slot: TimeSlotComponentProps['slots'][0], listingId: string) => {
+    // Find the listing from the listings prop
+    const listing = listings.find(l => l.id === listingId);
+    if (listing) {
+      setBookingListing(listing);
+      setSelectedSlotForBooking({
+        ...slot,
+        _id: slot.id as Id<"slots">,
+      });
+    } else {
+      // If listing not found in props, add a message to let user know
+      setMessages(prev => [...prev, {
+        role: 'model',
+        text: `Great choice! To complete your booking for this slot, please visit the listing page directly.`
+      }]);
+    }
+  };
+
+  // Handle booking modal close
+  const handleBookingModalClose = () => {
+    setBookingListing(null);
+    setSelectedSlotForBooking(null);
+    // Add confirmation message
+    if (selectedSlotForBooking) {
+      setMessages(prev => [...prev, {
+        role: 'model',
+        text: `Need help with anything else? 🌴`
+      }]);
     }
   };
 
@@ -320,14 +380,28 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ listings }) => {
                       className="w-14 h-14 rounded-full flex-shrink-0 mt-1"
                     />
                   )}
-                  <div
-                    className={`max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed ${
-                      msg.role === 'user'
-                        ? 'bg-teal-600 text-white rounded-br-none'
-                        : 'bg-white text-gray-800 border border-gray-200 shadow-sm rounded-bl-none'
-                    }`}
-                  >
-                    {msg.text}
+                  <div className="max-w-[85%] flex flex-col gap-2">
+                    {/* Text message */}
+                    <div
+                      className={`p-3 rounded-2xl text-sm leading-relaxed ${
+                        msg.role === 'user'
+                          ? 'bg-teal-600 text-white rounded-br-none'
+                          : 'bg-white text-gray-800 border border-gray-200 shadow-sm rounded-bl-none'
+                      }`}
+                    >
+                      {msg.text}
+                    </div>
+
+                    {/* Interactive component (if present) */}
+                    {msg.component?.type === 'time_slots' && msg.component.props.type === 'time_slots' && (
+                      <ChatTimeSlots
+                        listingId={msg.component.props.listingId}
+                        listingTitle={msg.component.props.listingTitle}
+                        requestedDate={msg.component.props.requestedDate}
+                        slots={msg.component.props.slots}
+                        onSelectSlot={(slot) => handleSlotSelect(slot, msg.component!.props.listingId)}
+                      />
+                    )}
                   </div>
                 </div>
               ))}
@@ -447,6 +521,15 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ listings }) => {
           />
           <span className="font-medium pr-2">Ask Nui</span>
         </button>
+      )}
+
+      {/* Booking Modal - Opens when slot is selected from chat */}
+      {bookingListing && (
+        <BookingModal
+          listing={bookingListing}
+          onClose={handleBookingModalClose}
+          preSelectedSlot={selectedSlotForBooking}
+        />
       )}
     </div>
   );

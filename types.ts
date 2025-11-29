@@ -66,6 +66,61 @@ export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
   isLoading?: boolean;
+  // Interactive component support
+  component?: {
+    type: 'time_slots' | 'listing_card' | 'quick_actions' | 'booking_confirm';
+    props: ChatComponentProps;
+  };
+}
+
+// Chat component prop types
+export type ChatComponentProps =
+  | TimeSlotComponentProps
+  | ListingCardComponentProps
+  | QuickActionsComponentProps
+  | BookingConfirmComponentProps;
+
+export interface TimeSlotComponentProps {
+  type: 'time_slots';
+  listingId: string;
+  listingTitle: string;
+  requestedDate?: string | null; // YYYY-MM-DD format, auto-select this date if provided
+  slots: Array<{
+    id: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    available: number;
+    capacity: number;
+    booked: number;
+  }>;
+}
+
+export interface ListingCardComponentProps {
+  type: 'listing_card';
+  listingId: string;
+  title: string;
+  price: number;
+  imageUrl: string;
+  category: string;
+  rating?: number;
+}
+
+export interface QuickActionsComponentProps {
+  type: 'quick_actions';
+  actions: Array<{
+    label: string;
+    value: string;
+  }>;
+}
+
+export interface BookingConfirmComponentProps {
+  type: 'booking_confirm';
+  bookingId: string;
+  listingTitle: string;
+  date: string;
+  time: string;
+  guests: number;
 }
 
 export interface Booking {

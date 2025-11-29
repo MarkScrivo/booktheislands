@@ -14,9 +14,17 @@ import { CustomerBookingCalendar } from './CustomerBookingCalendar';
 interface BookingModalProps {
   listing: Listing;
   onClose: () => void;
+  preSelectedSlot?: {
+    _id: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    available: number;
+    capacity: number;
+  };
 }
 
-export const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose }) => {
+export const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, preSelectedSlot }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -24,9 +32,10 @@ export const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose }) 
   // Step 2: Enter guest count and review
   // Step 3: Payment
   // Step 4: Success
-  const [step, setStep] = useState(1);
+  // If preSelectedSlot is provided, skip directly to step 2
+  const [step, setStep] = useState(preSelectedSlot ? 2 : 1);
 
-  const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<any | null>(preSelectedSlot || null);
   const [guests, setGuests] = useState(1);
   const [booking, setBooking] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
