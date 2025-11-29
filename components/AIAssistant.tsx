@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ChatMessage, Listing, TimeSlotComponentProps } from '../types';
+import { ChatMessage, Listing, TimeSlotComponentProps, ListingsForDateComponentProps } from '../types';
 import { createLiveSession, LiveSession } from '../services/geminiLiveService';
 import { AudioRecorder, AudioPlayer, checkAudioSupport } from '../services/audioUtils';
 import { Sparkles, Send, X, Mic, MicOff, Volume2 } from 'lucide-react';
@@ -8,6 +8,7 @@ import { useQuery, useAction } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Id } from '../convex/_generated/dataModel';
 import { ChatTimeSlots } from './chat/ChatTimeSlots';
+import { ChatListingsForDate } from './chat/ChatListingsForDate';
 import { BookingModal } from './BookingModal';
 
 interface AIAssistantProps {
@@ -246,17 +247,102 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ listings }) => {
       let parsedResponse: ChatMessage = { role: 'model', text: responseText };
 
       try {
-        const trimmed = responseText.trim();
-        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-          const parsed = JSON.parse(trimmed);
+        let trimmed = responseText.trim();
+
+        // Remove markdown code block wrapper if present (```json ... ``` or ``` ... ```)
+        const codeBlockMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+        if (codeBlockMatch) {
+          trimmed = codeBlockMatch[1].trim();
+        }
+
+        // Helper to extract JSON object with balanced braces
+        const extractJson = (text: string): { json: string; startIdx: number } | null => {
+          const startIdx = text.indexOf('{');
+          if (startIdx === -1) return null;
+
+          let depth = 0;
+          let inString = false;
+          let escape = false;
+
+          for (let i = startIdx; i < text.length; i++) {
+            const char = text[i];
+
+            if (escape) {
+              escape = false;
+              continue;
+            }
+
+            if (char === '\\' && inString) {
+              escape = true;
+              continue;
+            }
+
+            if (char === '"') {
+              inString = !inString;
+              continue;
+            }
+
+            if (!inString) {
+              if (char === '{') depth++;
+              else if (char === '}') {
+                depth--;
+                if (depth === 0) {
+                  return { json: text.slice(startIdx, i + 1), startIdx };
+                }
+              }
+            }
+          }
+          return null;
+        };
+
+        // Try to extract and parse JSON
+        let parsed = null;
+        let textBeforeJson = '';
+
+        // First try: pure JSON response
+        if (trimmed.startsWith('{')) {
+          try {
+            parsed = JSON.parse(trimmed);
+          } catch {
+            // Not valid JSON as-is, try extraction
+          }
+        }
+
+        // Second try: extract JSON from text
+        if (!parsed) {
+          const extracted = extractJson(trimmed);
+          if (extracted) {
+            try {
+              const candidate = JSON.parse(extracted.json);
+              if (candidate.message && (candidate.showSlots || candidate.showListingsForDate || candidate.component)) {
+                parsed = candidate;
+                textBeforeJson = trimmed.slice(0, extracted.startIdx).trim();
+              }
+            } catch {
+              // Extraction failed
+            }
+          }
+        }
+
+        if (parsed) {
           if (parsed.component && parsed.component.type === 'time_slots') {
             parsedResponse = {
               role: 'model',
               text: parsed.message || 'Here are the available times:',
               component: parsed.component,
             };
+          } else if (parsed.component && parsed.component.type === 'listings_for_date') {
+            parsedResponse = {
+              role: 'model',
+              text: parsed.message || 'Here are the available activities:',
+              component: parsed.component,
+            };
           } else if (parsed.message) {
-            parsedResponse = { role: 'model', text: parsed.message };
+            // Has message but no component - combine any text before JSON with the message
+            const displayText = textBeforeJson
+              ? `${textBeforeJson} ${parsed.message}`.replace(/\s+/g, ' ').trim()
+              : parsed.message;
+            parsedResponse = { role: 'model', text: displayText };
           }
         }
       } catch {
@@ -400,6 +486,26 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ listings }) => {
                         requestedDate={msg.component.props.requestedDate}
                         slots={msg.component.props.slots}
                         onSelectSlot={(slot) => handleSlotSelect(slot, msg.component!.props.listingId)}
+                      />
+                    )}
+                    {msg.component?.type === 'listings_for_date' && msg.component.props.type === 'listings_for_date' && (
+                      <ChatListingsForDate
+                        date={(msg.component.props as ListingsForDateComponentProps).date}
+                        dateDisplay={(msg.component.props as ListingsForDateComponentProps).dateDisplay}
+                        category={(msg.component.props as ListingsForDateComponentProps).category}
+                        listings={(msg.component.props as ListingsForDateComponentProps).listings}
+                        onSelectSlot={(listingId, listingTitle, slot) => {
+                          // Find or create a listing object for the booking modal
+                          const listing = listings.find(l => l.id === listingId);
+                          if (listing) {
+                            setBookingListing(listing);
+                            setSelectedSlotForBooking({
+                              ...slot,
+                              _id: slot.id as Id<"slots">,
+                              date: (msg.component!.props as ListingsForDateComponentProps).date,
+                            });
+                          }
+                        }}
                       />
                     )}
                   </div>

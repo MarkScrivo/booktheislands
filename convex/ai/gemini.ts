@@ -152,41 +152,52 @@ AVAILABILITY INFO:
 - If nextAvailableDates is empty, the activity is fully booked for the next 30 days
 
 INTERACTIVE COMPONENTS:
-When the user wants to BOOK an activity or asks to SEE AVAILABLE TIMES/SLOTS for a specific activity, respond with a JSON object like this:
-{"message": "your friendly message here", "showSlots": {"listingId": "the-listing-id", "listingTitle": "Activity Name", "requestedDate": "YYYY-MM-DD or null"}}
-
-IMPORTANT: If the user mentions a specific date (like "December 12th", "next Monday", "tomorrow"), include that date in requestedDate as YYYY-MM-DD format. If no specific date mentioned, use null.
-
 Today's date is ${new Date().toISOString().split('T')[0]}.
 
-ONLY use showSlots when:
-- User explicitly wants to book ("I want to book", "can I book", "let me book", "book this")
-- User asks for available slots/times ("show me times", "what times are available", "when can I go")
-- User is ready to pick a time for a specific activity
+CRITICAL: When using interactive components, your ENTIRE response must be ONLY the raw JSON object. Do NOT include any text before or after the JSON. Do NOT wrap JSON in markdown code blocks (no \`\`\`json). The raw JSON must be the complete response.
 
-Do NOT use showSlots for:
-- General questions about availability dates (just mention dates in text)
-- Questions about what activities are available (just describe them)
-- Price inquiries or other info questions
+1. SINGLE ACTIVITY BOOKING - When user wants to book ONE specific activity:
+{"message": "your friendly message", "showSlots": {"listingId": "the-listing-id", "listingTitle": "Activity Name", "requestedDate": "YYYY-MM-DD or null"}}
+
+2. MULTIPLE ACTIVITIES ON A DATE - When user asks what activities/classes are available on a specific date:
+{"message": "your friendly message", "showListingsForDate": {"date": "YYYY-MM-DD", "category": "category or null", "listingIds": ["id1", "id2", "id3"]}}
+
+Use showListingsForDate when:
+- User asks "what yoga classes are available Monday?"
+- User asks "what can I do on December 5th?"
+- User asks "show me wellness activities this Saturday"
+- User asks about MULTIPLE activities on a specific day
+
+Use showSlots when:
+- User wants to book ONE specific activity by name
+- User says "book", "reserve", "sign up for" a specific activity
+- User asks for times for ONE specific activity
+
+IMPORTANT DATE HANDLING:
+- Convert relative dates (tomorrow, Monday, next week) to YYYY-MM-DD format
+- "this Monday" means the coming Monday
+- "next Monday" means the Monday after this coming one
+- Always calculate from today's date: ${new Date().toISOString().split('T')[0]}
 
 EXAMPLES:
+
 User: "looking for yoga"
 You: "Check out Sunrise Yoga on Secret Beach! $350 and it's at dawn with amazing views"
 
-User: "what time does it start?"
-You: "It's at dawn, so around 6am. Perfect way to start the day!"
+User: "what yoga classes do you have this Monday"
+You: {"message": "Here are the yoga options for Monday! Tap any to see times:", "showListingsForDate": {"date": "2024-12-02", "category": "Wellness", "listingIds": ["id1", "id2"]}}
 
-User: "when is it available?"
-You: "Dog Yoga has spots open on Dec 15, Dec 18, Dec 20, and several other dates this month! Takes up to 8 people."
+User: "what can I do tomorrow?"
+You: {"message": "Here's what's happening tomorrow:", "showListingsForDate": {"date": "2024-12-01", "category": null, "listingIds": ["id1", "id2", "id3"]}}
+
+User: "show me water sports on Saturday"
+You: {"message": "Here are the water activities for Saturday:", "showListingsForDate": {"date": "2024-12-07", "category": "Water Sports", "listingIds": ["id1", "id2"]}}
 
 User: "I want to book dog yoga"
-You: {"message": "Here's the available slots for Dog Yoga! Pick a time that works for you:", "showSlots": {"listingId": "abc123", "listingTitle": "Dog Yoga", "requestedDate": null}}
+You: {"message": "Here's the available slots for Dog Yoga:", "showSlots": {"listingId": "abc123", "listingTitle": "Dog Yoga", "requestedDate": null}}
 
-User: "can I book dog yoga for December 12th"
-You: {"message": "Here are the slots for Dog Yoga on December 12th:", "showSlots": {"listingId": "abc123", "listingTitle": "Dog Yoga", "requestedDate": "2024-12-12"}}
-
-User: "show me available times for sunrise yoga"
-You: {"message": "Here are the available times for Sunrise Yoga:", "showSlots": {"listingId": "xyz789", "listingTitle": "Sunrise Yoga on Secret Beach", "requestedDate": null}}
+User: "book sunrise yoga for Monday"
+You: {"message": "Here are the slots for Sunrise Yoga on Monday:", "showSlots": {"listingId": "xyz789", "listingTitle": "Sunrise Yoga", "requestedDate": "2024-12-02"}}
 
 User: "what's fun?"
 You: "Depends what you're into! We've got beach parties, wellness stuff, water sports... what sounds good?"
@@ -309,7 +320,83 @@ Keep it real and conversational. No bullet points or formal lists.`;
             }
           }
 
-          // If it's JSON but not a showSlots response, return the message
+          // Check if it's a showListingsForDate response
+          if (parsed.showListingsForDate && parsed.showListingsForDate.date) {
+            const { date, category, listingIds } = parsed.showListingsForDate;
+
+            try {
+              // Fetch listing details and slots for each listing
+              const listingsWithSlots = await Promise.all(
+                (listingIds || []).map(async (listingId: string) => {
+                  try {
+                    // Get listing details
+                    const listing = await ctx.runQuery(api.listings.get, {
+                      id: listingId as Id<"listings">,
+                    });
+
+                    // Get slots for just this date
+                    const slots = await ctx.runQuery(api.availability.slots.getAvailableForBooking, {
+                      listingId: listingId as Id<"listings">,
+                      startDate: date,
+                      endDate: date,
+                    });
+
+                    return {
+                      id: listingId,
+                      title: listing.title,
+                      price: listing.price,
+                      imageUrl: listing.imageUrl || '',
+                      category: listing.category,
+                      duration: listing.duration,
+                      slots: slots.map((slot: any) => ({
+                        id: slot._id,
+                        startTime: slot.startTime,
+                        endTime: slot.endTime,
+                        available: slot.available,
+                        capacity: slot.capacity,
+                      })),
+                    };
+                  } catch (err) {
+                    console.error(`[Gemini] Error fetching listing ${listingId}:`, err);
+                    return null;
+                  }
+                })
+              );
+
+              // Filter out any failed fetches and listings with no slots
+              const validListings = listingsWithSlots.filter(
+                (l): l is NonNullable<typeof l> => l !== null && l.slots.length > 0
+              );
+
+              // Format date for display
+              const dateObj = new Date(date + 'T00:00:00');
+              const dateDisplay = dateObj.toLocaleDateString('en-US', {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+              });
+
+              // Return structured response with component data
+              return JSON.stringify({
+                message: parsed.message || `Here's what's available on ${dateDisplay}:`,
+                component: {
+                  type: "listings_for_date",
+                  props: {
+                    type: "listings_for_date",
+                    date,
+                    dateDisplay,
+                    category: category || undefined,
+                    listings: validListings,
+                  },
+                },
+              });
+            } catch (listingsError) {
+              console.error("[Gemini] Error fetching listings for date:", listingsError);
+              return parsed.message || "I couldn't load the activities for that date. Please try again.";
+            }
+          }
+
+          // If it's JSON but not a recognized component response, return the message
           return parsed.message || rawText;
         } catch (parseError) {
           // Not valid JSON, return as regular text

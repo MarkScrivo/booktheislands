@@ -68,7 +68,7 @@ export interface ChatMessage {
   isLoading?: boolean;
   // Interactive component support
   component?: {
-    type: 'time_slots' | 'listing_card' | 'quick_actions' | 'booking_confirm';
+    type: 'time_slots' | 'listing_card' | 'listings_for_date' | 'quick_actions' | 'booking_confirm';
     props: ChatComponentProps;
   };
 }
@@ -77,6 +77,7 @@ export interface ChatMessage {
 export type ChatComponentProps =
   | TimeSlotComponentProps
   | ListingCardComponentProps
+  | ListingsForDateComponentProps
   | QuickActionsComponentProps
   | BookingConfirmComponentProps;
 
@@ -104,6 +105,28 @@ export interface ListingCardComponentProps {
   imageUrl: string;
   category: string;
   rating?: number;
+}
+
+export interface ListingsForDateComponentProps {
+  type: 'listings_for_date';
+  date: string; // YYYY-MM-DD
+  dateDisplay: string; // "Monday, December 2nd"
+  category?: string; // Optional filter (e.g., "Wellness", "yoga")
+  listings: Array<{
+    id: string;
+    title: string;
+    price: number;
+    imageUrl: string;
+    category: string;
+    duration?: string;
+    slots: Array<{
+      id: string;
+      startTime: string;
+      endTime: string;
+      available: number;
+      capacity: number;
+    }>;
+  }>;
 }
 
 export interface QuickActionsComponentProps {
