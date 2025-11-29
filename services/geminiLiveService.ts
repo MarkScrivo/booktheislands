@@ -49,7 +49,11 @@ export async function createLiveSession(config: LiveSessionConfig): Promise<Live
   }
 
   // Create AI client with ephemeral token
-  const ai = new GoogleGenAI({ apiKey: token });
+  // IMPORTANT: Must use v1alpha API version for ephemeral tokens
+  const ai = new GoogleGenAI({
+    apiKey: token,
+    httpOptions: { apiVersion: 'v1alpha' }
+  });
 
   // Build listings context for voice mode
   // Keep it concise for voice (token limits) - only include essential info
