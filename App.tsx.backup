@@ -1,0 +1,1638 @@
+
+import React, { useState, useEffect, useRef } from 'react';
+import { HashRouter as Router, Routes, Route, Link, useLocation, useNavigate, Navigate, useParams } from 'react-router-dom';
+import { LOCATIONS, APP_VERSION } from './constants';
+import { Listing, ActivityCategory, Booking, Review, AvailabilityBlock, TimeSlot } from './types';
+import { ListingCard } from './components/ListingCard';
+import { AIAssistant } from './components/AIAssistant';
+import { fetchListings, fetchListingById, createListing, updateListing, fetchVendorListings, createBooking, fetchVendorBookings, fetchCustomerBookings, fetchAllBookings, fetchAdminStats, fetchReviews, createReview, uploadFile, checkAvailability, fetchListingBlocks, fetchListingBookingsByMonth, blockDate, unblockDate, resetDemoData, diagnoseConnection, generateIcalData, parseAndSyncIcal, getSlotsForDuration, SlotAvailability, createManualBooking } from './services/dataService';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { LoginPage, RegisterPage } from './pages/AuthPages';
+import { InboxPage } from './pages/InboxPage';
+import { Search, Plus, ShoppingBag, Map, Menu, X, Loader2, Calendar, Users, DollarSign, LayoutDashboard, List, Mail, User, LogOut, MessageSquare, Shield, TrendingUp, Star, ArrowLeft, Image as ImageIcon, UploadCloud, Trash2, Video, AlertCircle, Edit, Palmtree, Anchor, Heart, Clock, CheckCircle, ChevronLeft, ChevronRight, Lock, RefreshCw, Film, Activity, Settings, MapPin, Terminal, Wifi, Layers, Globe, Download, Upload, Sun, Moon, Cloud } from 'lucide-react';
+import * as L from 'leaflet';
+
+// --- Map Components ---
+
+// Custom Icon for Map Pins
+const createCustomIcon = () => {
+    return L.divIcon({
+        className: 'custom-div-icon',
+        html: `<div class="w-8 h-8 bg-teal-600 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></div>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 32],
+        popupAnchor: [0, -32]
+    });
+};
+
+const ListingMap: React.FC<{ listings: Listing[], onSelect: (l: Listing) => void }> = ({ listings, onSelect }) => {
+    const mapContainerRef = useRef<HTMLDivElement>(null);
+    const mapInstanceRef = useRef<L.Map | null>(null);
+
+    useEffect(() => {
+        if (!mapContainerRef.current) return;
+        
+        // Init Map if not exists
+        if (!mapInstanceRef.current) {
+            mapInstanceRef.current = L.map(mapContainerRef.current).setView([9.73, 100.01], 11); // Center on Koh Phangan
+            
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(mapInstanceRef.current);
+        }
+
+        const map = mapInstanceRef.current;
+
+        // Clear existing markers
+        map.eachLayer((layer) => {
+            if (layer instanceof L.Marker) {
+                map.removeLayer(layer);
+            }
+        });
+
+        // Add Markers
+        listings.forEach(l => {
+            if (l.latitude && l.longitude) {
+                const marker = L.marker([l.latitude, l.longitude], { icon: createCustomIcon() })
+                    .addTo(map)
+                    .bindPopup(`
+                        <div class="text-center p-1 min-w-[150px]">
+                            <img src="${l.imageUrl}" class="w-full h-24 object-cover rounded-lg mb-2" />
+                            <h3 class="font-bold text-sm text-gray-900 mb-1">${l.title}</h3>
+                            <p class="text-teal-600 font-bold">$${l.price}</p>
+                        </div>
+                    `);
+                
+                marker.on('popupopen', () => {
+                    // Optionally scroll card into view or set active state
+                });
+                marker.on('click', () => {
+                     // Handle click if needed
+                });
+            }
+        });
+
+        return () => {
+            // Cleanup if needed
+        };
+    }, [listings]);
+
+    return <div ref={mapContainerRef} className="w-full h-full z-0" />;
+};
+
+const VendorLocationPicker: React.FC<{ 
+    lat?: number, 
+    lng?: number, 
+    onChange: (lat: number, lng: number) => void 
+}> = ({ lat, lng, onChange }) => {
+    const mapContainerRef = useRef<HTMLDivElement>(null);
+    const mapInstanceRef = useRef<L.Map | null>(null);
+    const markerRef = useRef<L.Marker | null>(null);
+
+    useEffect(() => {
+        if (!mapContainerRef.current) return;
+
+        const initialLat = lat || 9.73;
+        const initialLng = lng || 100.01;
+
+        if (!mapInstanceRef.current) {
+            mapInstanceRef.current = L.map(mapContainerRef.current).setView([initialLat, initialLng], 12);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: 'CARTO',
+            }).addTo(mapInstanceRef.current);
+
+            mapInstanceRef.current.on('click', (e) => {
+                const { lat, lng } = e.latlng;
+                onChange(lat, lng);
+                updateMarker(lat, lng);
+            });
+        }
+
+        const map = mapInstanceRef.current;
+        
+        const updateMarker = (latitude: number, longitude: number) => {
+            if (markerRef.current) map.removeLayer(markerRef.current);
+            markerRef.current = L.marker([latitude, longitude], { icon: createCustomIcon() }).addTo(map);
+        };
+
+        if (lat && lng) {
+            updateMarker(lat, lng);
+            map.setView([lat, lng], map.getZoom());
+        }
+
+        // Fix map resize issues when tab changes
+        setTimeout(() => {
+            map.invalidateSize();
+        }, 100);
+
+    }, [lat, lng]);
+
+    return (
+        <div className="relative w-full h-[300px] rounded-xl overflow-hidden border border-gray-200 shadow-sm">
+             <div ref={mapContainerRef} className="w-full h-full" />
+             <div className="absolute top-2 right-2 bg-white/90 backdrop-blur px-3 py-1 text-xs font-bold rounded-full shadow-sm z-[1000]">
+                Click to set location
+             </div>
+        </div>
+    );
+};
+
+// --- Navbar Component ---
+const Navbar = ({ cartCount }: { cartCount: number }) => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const location = useLocation();
+  const { user, profile, signOut } = useAuth();
+  const navigate = useNavigate();
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/');
+  };
+
+  // Dynamic styles based on scroll and location (Home page has transparent nav initially)
+  const isHome = location.pathname === '/';
+  const navClass = `fixed top-0 z-50 w-full transition-all duration-300 ${
+    scrolled || !isHome 
+      ? 'bg-white/90 backdrop-blur-xl border-b border-gray-100 shadow-sm py-3' 
+      : 'bg-transparent py-5'
+  }`;
+  
+  const linkClass = (path: string) => `text-sm font-medium transition-colors ${
+    location.pathname === path 
+      ? 'text-teal-600' 
+      : (isHome && !scrolled ? 'text-white/90 hover:text-white' : 'text-gray-600 hover:text-gray-900')
+  }`;
+
+  const logoClass = isHome && !scrolled ? 'text-white' : 'text-teal-700';
+
+  return (
+    <nav className={navClass}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center">
+            <Link to="/" className={`flex items-center gap-2 text-2xl font-bold tracking-tight ${logoClass}`}>
+              <Palmtree className={`w-8 h-8 ${isHome && !scrolled ? 'text-teal-400' : 'text-teal-500'}`} />
+              Discover Phangan
+            </Link>
+          </div>
+          
+          <div className="hidden md:flex items-center space-x-8">
+            <Link to="/" className={linkClass('/')}>Explore</Link>
+            
+            {user && (
+              <Link to="/inbox" className={`flex items-center gap-2 ${linkClass('/inbox')}`}>
+                 Inbox
+              </Link>
+            )}
+
+            {user && profile?.role === 'vendor' && (
+              <Link to="/vendor" className={linkClass('/vendor')}>Dashboard</Link>
+            )}
+            
+            {user && profile?.role === 'customer' && (
+              <Link to="/trips" className={linkClass('/trips')}>Trips</Link>
+            )}
+
+            {user && profile?.role === 'admin' && (
+              <Link to="/admin" className={`flex items-center gap-1 ${linkClass('/admin')}`}>
+                Admin
+              </Link>
+            )}
+
+            {!user ? (
+              <Link to="/login" className={`text-sm font-semibold px-6 py-2.5 rounded-full transition-all duration-300 ${
+                isHome && !scrolled 
+                    ? 'bg-white text-teal-900 hover:bg-gray-50 shadow-lg' 
+                    : 'bg-gray-900 text-white hover:bg-teal-600 shadow-md'
+              }`}>
+                Sign In
+              </Link>
+            ) : (
+              <div className="flex items-center gap-4 pl-4 border-l border-gray-200/30">
+                 <div className={`flex flex-col items-end text-xs ${isHome && !scrolled ? 'text-white' : 'text-gray-700'}`}>
+                    <span className="font-bold">{profile?.fullName}</span>
+                    <span className="opacity-70 capitalize">{profile?.role}</span>
+                 </div>
+                <button onClick={handleSignOut} className={`p-2 rounded-full transition-colors ${isHome && !scrolled ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-600'}`}>
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="md:hidden flex items-center">
+            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className={`p-2 ${isHome && !scrolled ? 'text-white' : 'text-gray-800'}`}>
+              {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      {/* Mobile Menu */}
+      {isMenuOpen && (
+        <div className="md:hidden absolute top-full left-0 w-full bg-white border-b border-gray-100 shadow-xl animate-in slide-in-from-top-5">
+            <div className="p-4 space-y-2">
+                <Link to="/" className="block px-4 py-3 rounded-lg hover:bg-gray-50 text-gray-700 font-medium" onClick={()=>setIsMenuOpen(false)}>Explore</Link>
+                {user && <Link to="/inbox" className="block px-4 py-3 rounded-lg hover:bg-gray-50 text-gray-700 font-medium" onClick={()=>setIsMenuOpen(false)}>Inbox</Link>}
+                {user && profile?.role === 'vendor' && <Link to="/vendor" className="block px-4 py-3 rounded-lg hover:bg-gray-50 text-gray-700 font-medium" onClick={()=>setIsMenuOpen(false)}>Vendor Dashboard</Link>}
+                {user && profile?.role === 'customer' && <Link to="/trips" className="block px-4 py-3 rounded-lg hover:bg-gray-50 text-gray-700 font-medium" onClick={()=>setIsMenuOpen(false)}>My Trips</Link>}
+                {user ? (
+                    <button onClick={() => { handleSignOut(); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3 text-red-600 font-medium">Sign Out</button>
+                ) : (
+                    <Link to="/login" className="block px-4 py-3 bg-teal-600 text-white text-center rounded-lg font-bold mt-4" onClick={()=>setIsMenuOpen(false)}>Sign In</Link>
+                )}
+            </div>
+        </div>
+      )}
+    </nav>
+  );
+};
+
+// --- Footer Component ---
+const Footer = () => {
+  return (
+    <footer className="bg-gray-900 text-white py-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex flex-col md:flex-row justify-between items-center">
+          <div className="flex items-center gap-2 mb-4 md:mb-0">
+            <Palmtree className="w-6 h-6 text-teal-500" />
+            <span className="font-bold text-xl">Discover Phangan</span>
+          </div>
+          <div className="text-gray-400 text-sm text-center md:text-right">
+            <p>© 2024 Discover Phangan. All rights reserved.</p>
+            <div className="flex items-center justify-center md:justify-end gap-2 mt-2 opacity-50 hover:opacity-100 transition-opacity">
+              <Terminal className="w-3 h-3" />
+              <span className="font-mono text-xs">{APP_VERSION}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
+// --- Explore Page (Home) ---
+const ExplorePage: React.FC<{ onBook: (l: Listing) => void }> = ({ onBook }) => {
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      const data = await fetchListings();
+      setListings(data);
+      setIsLoading(false);
+    };
+    load();
+  }, []);
+
+  const filteredListings = listings.filter(l => {
+    const matchesSearch = l.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          l.location.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === 'All' || l.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  return (
+    <div className="min-h-screen pt-24 pb-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+      {/* Hero / Search Section */}
+      <div className="text-center mb-12 space-y-4">
+        <h1 className="text-4xl md:text-5xl font-bold text-gray-900 tracking-tight">
+           Discover <span className="text-teal-600">Phangan</span>
+        </h1>
+        <p className="text-lg text-gray-500 max-w-2xl mx-auto">
+          Explore the best local experiences, from hidden beaches to jungle treks.
+        </p>
+        
+        <div className="flex flex-col md:flex-row items-center justify-center gap-4 mt-8 max-w-2xl mx-auto">
+           <div className="relative w-full">
+              <Search className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
+              <input 
+                type="text" 
+                placeholder="Search for 'kayaking' or 'thong sala'..." 
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-12 pr-4 py-3.5 rounded-full border border-gray-200 shadow-sm focus:ring-2 focus:ring-teal-500 outline-none bg-transparent"
+              />
+           </div>
+           <div className="flex bg-white p-1 rounded-full border border-gray-200 shadow-sm">
+              <button onClick={() => setViewMode('grid')} className={`p-3 rounded-full transition-all ${viewMode === 'grid' ? 'bg-teal-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}>
+                 <LayoutDashboard className="w-5 h-5" />
+              </button>
+              <button onClick={() => setViewMode('map')} className={`p-3 rounded-full transition-all ${viewMode === 'map' ? 'bg-teal-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}>
+                 <Map className="w-5 h-5" />
+              </button>
+           </div>
+        </div>
+
+        {/* Categories */}
+        <div className="flex gap-2 overflow-x-auto pb-4 justify-center no-scrollbar">
+           {['All', ...Object.values(ActivityCategory)].map(cat => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  selectedCategory === cat 
+                    ? 'bg-gray-900 text-white shadow-lg transform scale-105' 
+                    : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {cat}
+              </button>
+           ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      {isLoading ? (
+        <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-teal-600" /></div>
+      ) : (
+        <>
+          {viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {filteredListings.map(l => (
+                <ListingCard key={l.id} listing={l} onBook={onBook} />
+              ))}
+              {filteredListings.length === 0 && (
+                 <div className="col-span-full text-center py-20 text-gray-400">
+                    No activities found matching your criteria.
+                 </div>
+              )}
+            </div>
+          ) : (
+            <div className="h-[600px] rounded-3xl overflow-hidden shadow-lg border border-gray-200 relative">
+               <ListingMap listings={filteredListings} onSelect={() => {}} />
+            </div>
+          )}
+        </>
+      )}
+      
+      <AIAssistant listings={listings} />
+    </div>
+  );
+};
+
+// --- Customer Dashboard ---
+const CustomerDashboard = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) { navigate('/login'); return; }
+    const load = async () => {
+      const data = await fetchCustomerBookings(user.id);
+      setBookings(data);
+      setIsLoading(false);
+    };
+    load();
+  }, [user]);
+
+  if (isLoading) return <div className="h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-teal-600" /></div>;
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-24 px-4">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold text-gray-900 mb-8">My Trips</h1>
+        <div className="space-y-4">
+           {bookings.length > 0 ? bookings.map(b => (
+             <div key={b.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div className="flex items-center gap-4">
+                   <div className="w-16 h-16 bg-teal-50 rounded-xl flex items-center justify-center text-teal-600">
+                      <Palmtree className="w-8 h-8" />
+                   </div>
+                   <div>
+                      <h3 className="font-bold text-gray-900 text-lg">{b.listingTitle}</h3>
+                      <div className="flex gap-4 text-sm text-gray-500 mt-1">
+                         <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {b.date}</span>
+                         <span className="flex items-center gap-1"><Users className="w-4 h-4" /> {b.guests} Guests</span>
+                      </div>
+                      {b.timeSlot && <span className="inline-block mt-2 px-2 py-0.5 bg-gray-100 text-xs rounded text-gray-600 uppercase">{b.timeSlot.replace('_', ' ')}</span>}
+                   </div>
+                </div>
+                <div className="text-right">
+                   <div className="text-2xl font-bold text-gray-900">${b.totalPrice}</div>
+                   <div className="text-green-600 font-bold text-sm flex items-center justify-end gap-1 mt-1">
+                      <CheckCircle className="w-4 h-4" /> Confirmed
+                   </div>
+                   <Link to={`/listing/${b.listingId}`} className="text-sm text-teal-600 hover:underline mt-2 block">View Details</Link>
+                </div>
+             </div>
+           )) : (
+             <div className="text-center py-20 bg-white rounded-3xl border-dashed border-2 border-gray-200">
+                <ShoppingBag className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                <h3 className="font-bold text-gray-900 mb-2">No trips booked yet</h3>
+                <p className="text-gray-500 mb-6">Start your adventure in Koh Phangan today.</p>
+                <Link to="/" className="px-6 py-3 bg-teal-600 text-white rounded-xl font-bold hover:bg-teal-700 transition-colors">Explore Activities</Link>
+             </div>
+           )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Admin Dashboard ---
+const AdminDashboard = () => {
+  const { user, profile } = useAuth();
+  const navigate = useNavigate();
+  const [stats, setStats] = useState({ totalRevenue: 0, bookingCount: 0, userCount: 0, listingCount: 0 });
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isResetting, setIsResetting] = useState(false);
+
+  useEffect(() => {
+     if (!user || profile?.role !== 'admin') { navigate('/'); return; }
+     const load = async () => {
+        const [s, b] = await Promise.all([fetchAdminStats(), fetchAllBookings()]);
+        setStats(s as any);
+        setBookings(b);
+        setIsLoading(false);
+     };
+     load();
+  }, [user, profile]);
+
+  const handleReset = async () => {
+     if (!window.confirm("Are you sure? This will delete all non-system listings.")) return;
+     setIsResetting(true);
+     await resetDemoData();
+     window.location.reload();
+  };
+
+  if (isLoading) return <div className="h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-teal-600" /></div>;
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-24 px-4">
+       <div className="max-w-6xl mx-auto">
+          <div className="flex justify-between items-center mb-8">
+             <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
+             <button onClick={handleReset} disabled={isResetting} className="px-4 py-2 bg-red-50 text-red-600 border border-red-100 rounded-lg font-bold text-sm hover:bg-red-100 transition-colors flex items-center gap-2">
+                {isResetting ? <Loader2 className="animate-spin w-4 h-4"/> : <Trash2 className="w-4 h-4" />} Reset Demo Data
+             </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
+             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div className="text-gray-500 text-sm font-bold uppercase mb-2">Total Revenue</div>
+                <div className="text-3xl font-bold text-gray-900">${stats.totalRevenue}</div>
+             </div>
+             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div className="text-gray-500 text-sm font-bold uppercase mb-2">Bookings</div>
+                <div className="text-3xl font-bold text-gray-900">{stats.bookingCount}</div>
+             </div>
+             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div className="text-gray-500 text-sm font-bold uppercase mb-2">Users</div>
+                <div className="text-3xl font-bold text-gray-900">{stats.userCount}</div>
+             </div>
+             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div className="text-gray-500 text-sm font-bold uppercase mb-2">Listings</div>
+                <div className="text-3xl font-bold text-gray-900">{stats.listingCount}</div>
+             </div>
+          </div>
+
+          <h2 className="text-xl font-bold text-gray-900 mb-6">Recent Bookings (Global)</h2>
+          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+             <table className="w-full text-sm text-left">
+                <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-xs">
+                   <tr>
+                      <th className="px-6 py-4">Date</th>
+                      <th className="px-6 py-4">Activity</th>
+                      <th className="px-6 py-4">Customer</th>
+                      <th className="px-6 py-4 text-right">Amount</th>
+                      <th className="px-6 py-4">Status</th>
+                   </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                   {bookings.map(b => (
+                      <tr key={b.id} className="hover:bg-gray-50/50">
+                         <td className="px-6 py-4 font-medium text-gray-900">{b.date}</td>
+                         <td className="px-6 py-4 text-gray-600">{b.listingTitle}</td>
+                         <td className="px-6 py-4">
+                            <div className="font-medium text-gray-900">{b.customerName}</div>
+                            <div className="text-xs text-gray-400">{b.customerEmail}</div>
+                         </td>
+                         <td className="px-6 py-4 text-right font-bold text-gray-900">${b.totalPrice}</td>
+                         <td className="px-6 py-4"><span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold uppercase">Confirmed</span></td>
+                      </tr>
+                   ))}
+                </tbody>
+             </table>
+          </div>
+       </div>
+    </div>
+  );
+};
+
+// --- Listing Details Page ---
+const ListingDetailsPage: React.FC<{ onBook: (l: Listing) => void }> = ({ onBook }) => {
+  const { id } = useParams();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
+  useEffect(() => {
+    if (id) {
+      const loadData = async () => {
+        try {
+          const [l, r] = await Promise.all([
+            fetchListingById(id),
+            fetchReviews(id)
+          ]);
+          setListing(l);
+          setReviews(r);
+        } catch (e) {
+          console.error("Error loading details", e);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      loadData();
+    }
+  }, [id]);
+
+  const handleSubmitReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !id) return;
+    setIsSubmittingReview(true);
+    await createReview(id, user.id, rating, comment);
+    const updatedReviews = await fetchReviews(id);
+    setReviews(updatedReviews);
+    setComment('');
+    setIsSubmittingReview(false);
+  };
+
+  const handleContactVendor = () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+    if (listing && listing.vendorId) {
+      navigate('/inbox', { state: { recipientId: listing.vendorId } });
+    }
+  };
+
+  const getYouTubeEmbedUrl = (url: string) => {
+    if (!url) return null;
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11)
+      ? `https://www.youtube.com/embed/${match[2]}?origin=${window.location.origin}&rel=0`
+      : null;
+  };
+
+  const isYoutubeUrl = (url: string) => {
+    return url.includes('youtube.com') || url.includes('youtu.be');
+  };
+
+  if (isLoading) return <div className="h-screen flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-teal-600" /></div>;
+  if (!listing) return <div className="h-screen flex items-center justify-center">Listing not found</div>;
+
+  const embedUrl = isYoutubeUrl(listing.videoUrl || '') ? getYouTubeEmbedUrl(listing.videoUrl || '') : null;
+  const scheduleDisplay = listing.operatingDays.length === 7 ? "Daily" : listing.operatingDays.join(', ');
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-20 pt-20">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+         {/* Header & Title */}
+         <div className="mb-8">
+             <Link to="/" className="inline-flex items-center text-gray-500 hover:text-teal-600 mb-4 text-sm font-medium transition-colors"><ArrowLeft className="w-4 h-4 mr-1" /> Back to Search</Link>
+             <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
+               <div>
+                 <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3 leading-tight">{listing.title}</h1>
+                 <div className="flex flex-wrap items-center gap-4 text-sm">
+                   <span className="flex items-center gap-1.5 text-gray-600"><MapPin className="w-4 h-4 text-teal-600" /> {listing.location}</span>
+                   <span className="flex items-center gap-1.5 text-gray-900 font-medium"><Star className="w-4 h-4 fill-yellow-400 text-yellow-400" /> {listing.rating} <span className="text-gray-500 font-normal">({listing.reviewCount} reviews)</span></span>
+                   <span className="px-3 py-1 bg-teal-50 text-teal-700 rounded-full text-xs font-semibold uppercase tracking-wide">{listing.category}</span>
+                 </div>
+               </div>
+             </div>
+         </div>
+
+        {/* Bento Grid Gallery */}
+         <div className="grid grid-cols-1 md:grid-cols-4 gap-2 h-[50vh] md:h-[60vh] rounded-3xl overflow-hidden mb-10">
+            <div className="md:col-span-2 md:row-span-2 relative group cursor-pointer">
+                <img src={listing.imageUrl} className="w-full h-full object-cover" alt="Main" />
+                <div className="absolute inset-0 bg-black/10 group-hover:bg-black/0 transition-colors" />
+            </div>
+            {listing.galleryUrls && listing.galleryUrls.slice(0, 4).map((url, idx) => (
+                <div key={idx} className={`relative group cursor-pointer ${idx === 2 ? 'md:row-span-2' : ''}`}>
+                     <img src={url} className="w-full h-full object-cover" alt={`Gallery ${idx}`} />
+                     <div className="absolute inset-0 bg-black/10 group-hover:bg-black/0 transition-colors" />
+                </div>
+            ))}
+            {/* Fallback if no gallery */}
+            {(!listing.galleryUrls || listing.galleryUrls.length === 0) && (
+                 <div className="bg-gray-100 flex items-center justify-center text-gray-400">
+                    <ImageIcon className="w-8 h-8" />
+                 </div>
+            )}
+         </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+          {/* Left Column: Content */}
+          <div className="lg:col-span-2 space-y-10">
+             <div className="prose prose-lg max-w-none text-gray-600">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">About this activity</h2>
+                <p className="leading-relaxed whitespace-pre-line">{listing.description}</p>
+             </div>
+             
+             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 py-8 border-y border-gray-100">
+                <div className="space-y-1">
+                    <span className="text-xs uppercase tracking-wider text-gray-400 font-bold">Hosted By</span>
+                    <p className="font-medium text-gray-900">{listing.vendorName}</p>
+                </div>
+                <div className="space-y-1">
+                    <span className="text-xs uppercase tracking-wider text-gray-400 font-bold">Duration</span>
+                    <p className="font-medium text-gray-900">{listing.duration}</p>
+                </div>
+                 <div className="space-y-1">
+                    <span className="text-xs uppercase tracking-wider text-gray-400 font-bold">Max Guests</span>
+                    <p className="font-medium text-gray-900">{listing.maxCapacity}</p>
+                </div>
+                 <div className="space-y-1">
+                    <span className="text-xs uppercase tracking-wider text-gray-400 font-bold">Schedule</span>
+                    <p className="font-medium text-gray-900">{scheduleDisplay}</p>
+                </div>
+             </div>
+
+             {listing.videoUrl && (
+               <div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Video Tour</h2>
+                  <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl">
+                     {embedUrl ? (
+                        <iframe 
+                           src={embedUrl} 
+                           title="Excursion Video"
+                           className="w-full h-full"
+                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                           allowFullScreen
+                        />
+                     ) : (
+                        <video controls className="w-full h-full">
+                           <source src={listing.videoUrl} />
+                           Your browser does not support the video tag.
+                        </video>
+                     )}
+                  </div>
+               </div>
+             )}
+
+             <div>
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-2xl font-bold text-gray-900">Guest Reviews</h2>
+                  <div className="flex items-center gap-2">
+                     <Star className="w-6 h-6 fill-yellow-400 text-yellow-400" />
+                     <span className="text-2xl font-bold text-gray-900">{listing.rating}</span>
+                     <span className="text-gray-500">/ 5.0</span>
+                  </div>
+                </div>
+
+                {user && (
+                  <form onSubmit={handleSubmitReview} className="mb-10 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                    <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase tracking-wide">Write a Review</h3>
+                    <div className="mb-4 flex items-center gap-2">
+                       {[1,2,3,4,5].map(s => (
+                         <button key={s} type="button" onClick={()=>setRating(s)} className="transition-transform hover:scale-110">
+                            <Star className={`w-8 h-8 ${s <= rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-200'}`} />
+                         </button>
+                       ))}
+                    </div>
+                    <textarea 
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                      placeholder="Share your experience with other travelers..."
+                      className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 text-sm mb-4 focus:ring-2 focus:ring-teal-500 outline-none transition-all"
+                      rows={3}
+                      required
+                    />
+                    <button type="submit" disabled={isSubmittingReview} className="px-6 py-3 bg-gray-900 text-white text-sm font-bold rounded-xl hover:bg-teal-600 transition-colors disabled:opacity-50 shadow-lg">
+                       {isSubmittingReview ? 'Posting...' : 'Post Review'}
+                    </button>
+                  </form>
+                )}
+
+                <div className="space-y-8">
+                  {reviews.length > 0 ? reviews.map(review => (
+                    <div key={review.id} className="flex gap-4">
+                       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-cyan-500 flex items-center justify-center text-white font-bold shadow-sm flex-shrink-0">
+                          {review.userName.charAt(0)}
+                       </div>
+                       <div>
+                           <h4 className="font-bold text-gray-900">{review.userName}</h4>
+                           <div className="flex items-center gap-2 mb-2">
+                               <div className="flex">
+                                  {[...Array(review.rating)].map((_, i) => (
+                                    <Star key={i} className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                                  ))}
+                               </div>
+                               <span className="text-xs text-gray-400">• {review.createdAt}</span>
+                           </div>
+                           <p className="text-gray-600 text-sm leading-relaxed">{review.comment}</p>
+                       </div>
+                    </div>
+                  )) : (
+                    <div className="text-center py-12 bg-gray-50 rounded-2xl border-dashed border-2 border-gray-200">
+                        <MessageSquare className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                        <p className="text-gray-500">No reviews yet. Be the first to share your thoughts!</p>
+                    </div>
+                  )}
+                </div>
+             </div>
+          </div>
+
+          {/* Right Column: Booking Card */}
+          <div className="lg:col-span-1">
+             <div className="sticky top-28 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-6 md:p-8 border border-gray-100">
+                <div className="flex items-end justify-between mb-8">
+                   <div>
+                      <p className="text-sm text-gray-400 line-through font-medium">${listing.price + 15}</p>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-4xl font-bold text-gray-900 tracking-tight">${listing.price}</span>
+                        <span className="text-gray-500 font-medium">/ person</span>
+                      </div>
+                   </div>
+                   <div className="flex items-center gap-1 text-xs font-bold bg-red-50 text-red-600 px-3 py-1.5 rounded-full uppercase tracking-wide">
+                      <TrendingUp className="w-3 h-3" /> Best Price
+                   </div>
+                </div>
+
+                <div className="space-y-4 mb-8">
+                   <div className="flex items-center gap-3 text-sm text-gray-600 bg-gray-50 p-3 rounded-xl">
+                      <Calendar className="w-5 h-5 text-teal-600" /> <span>Free cancellation (24h)</span>
+                   </div>
+                   <div className="flex items-center gap-3 text-sm text-gray-600 bg-gray-50 p-3 rounded-xl">
+                      <CheckCircle className="w-5 h-5 text-teal-600" /> <span>Instant Confirmation</span>
+                   </div>
+                </div>
+
+                <button 
+                  onClick={() => onBook(listing)}
+                  className="w-full py-4 bg-gray-900 hover:bg-teal-600 text-white font-bold text-lg rounded-2xl shadow-xl transition-all transform hover:-translate-y-1 active:scale-[0.98]"
+                >
+                  Check Availability
+                </button>
+                
+                {user?.id !== listing.vendorId && (
+                  <button 
+                    onClick={handleContactVendor}
+                    className="w-full mt-4 py-3 text-gray-600 font-semibold text-sm hover:bg-gray-50 rounded-xl transition-colors flex items-center justify-center gap-2"
+                  >
+                     <MessageSquare className="w-4 h-4" /> Ask Vendor a Question
+                  </button>
+                )}
+             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Vendor Dashboard ---
+const VendorDashboard: React.FC<{ onAddListing: (l: Listing) => void }> = ({ onAddListing }) => {
+  const { user, profile, loading } = useAuth();
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<'bookings' | 'listings' | 'calendar' | 'create'>('bookings');
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [myListings, setMyListings] = useState<Listing[]>([]);
+  const [isLoadingBookings, setIsLoadingBookings] = useState(false);
+  const [isLoadingListings, setIsLoadingListings] = useState(false);
+  
+  // Calendar States
+  const [calendarListing, setCalendarListing] = useState<string>('');
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [calendarBlocks, setCalendarBlocks] = useState<AvailabilityBlock[]>([]);
+  const [calendarOccupancy, setCalendarOccupancy] = useState<{date: string, slot: TimeSlot, guests: number}[]>([]);
+  const [isLoadingCalendar, setIsLoadingCalendar] = useState(false);
+  const [importStatus, setImportStatus] = useState('');
+  const [manualWalkInDate, setManualWalkInDate] = useState<string | null>(null);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    price: '',
+    location: LOCATIONS[0],
+    category: ActivityCategory.WATER_SPORTS,
+    duration: '',
+    videoUrl: '',
+    maxCapacity: 20,
+    operatingDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    latitude: 9.73,
+    longitude: 100.01,
+    externalIcalUrl: ''
+  });
+
+  const [mainImageFile, setMainImageFile] = useState<File | null>(null);
+  const [mainImagePreview, setMainImagePreview] = useState<string | null>(null);
+  const [existingMainImage, setExistingMainImage] = useState<string | null>(null);
+  
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
+  const [galleryPreviews, setGalleryPreviews] = useState<string[]>([]);
+  const [existingGallery, setExistingGallery] = useState<string[]>([]);
+
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+
+  const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  useEffect(() => {
+     if (!loading && user && profile && profile.role !== 'vendor') {
+         navigate('/');
+     }
+  }, [user, profile, loading, navigate]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (activeTab === 'bookings') loadBookings();
+    if (activeTab === 'listings' || activeTab === 'calendar') loadMyListings();
+  }, [activeTab, user]);
+
+  useEffect(() => {
+    if (activeTab === 'calendar' && myListings.length > 0 && !calendarListing) {
+      setCalendarListing(myListings[0].id);
+    }
+  }, [activeTab, myListings]);
+
+  useEffect(() => {
+    if (activeTab === 'calendar' && calendarListing) {
+       loadCalendarData();
+    }
+  }, [calendarListing, currentMonth]);
+
+  const loadBookings = async () => {
+    if (!user) return;
+    setIsLoadingBookings(true);
+    const data = await fetchVendorBookings(user.id);
+    setBookings(data);
+    setIsLoadingBookings(false);
+  };
+
+  const loadMyListings = async () => {
+    if (!user) return;
+    setIsLoadingListings(true);
+    const data = await fetchVendorListings(user.id);
+    setMyListings(data);
+    setIsLoadingListings(false);
+  };
+
+  const loadCalendarData = async () => {
+    if (!calendarListing) return;
+    setIsLoadingCalendar(true);
+    const monthStr = currentMonth.toISOString().slice(0, 7); // YYYY-MM
+    const [blocks, occupancy] = await Promise.all([
+      fetchListingBlocks(calendarListing, monthStr),
+      fetchListingBookingsByMonth(calendarListing, monthStr)
+    ]);
+    setCalendarBlocks(blocks);
+    setCalendarOccupancy(occupancy);
+    setIsLoadingCalendar(false);
+  };
+
+  const handleBlockSlot = async (dayStr: string, slot: TimeSlot, isBlocked: boolean) => {
+     if (isBlocked) {
+        await unblockDate(calendarListing, dayStr, slot);
+     } else {
+        await blockDate(calendarListing, dayStr, slot);
+     }
+     loadCalendarData();
+  };
+
+  const handleAddWalkIn = async (guests: number, slot: TimeSlot) => {
+      if (!manualWalkInDate || !calendarListing) return;
+      const success = await createManualBooking(calendarListing, manualWalkInDate, guests, slot);
+      if (success) {
+          setManualWalkInDate(null);
+          loadCalendarData();
+      } else {
+          alert("Failed to add walk-in. Check capacity.");
+      }
+  };
+
+  const handleExportIcal = async () => {
+     if (!calendarListing) return;
+     const icsData = await generateIcalData(calendarListing);
+     if (icsData) {
+         const blob = new Blob([icsData], { type: 'text/calendar' });
+         const url = URL.createObjectURL(blob);
+         const a = document.createElement('a');
+         a.href = url;
+         a.download = `bookings-${calendarListing.slice(0,8)}.ics`;
+         a.click();
+     } else {
+         alert("No future bookings to export.");
+     }
+  };
+
+  const handleImportIcalFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0] && calendarListing) {
+          const file = e.target.files[0];
+          const text = await file.text();
+          setImportStatus("Syncing...");
+          const { added } = await parseAndSyncIcal(calendarListing, text);
+          setImportStatus(`Synced! ${added} days blocked.`);
+          loadCalendarData();
+      }
+  };
+
+  const renderCalendar = () => {
+     const year = currentMonth.getFullYear();
+     const month = currentMonth.getMonth();
+     const firstDayOfMonth = new Date(year, month, 1);
+     const daysInMonth = new Date(year, month + 1, 0).getDate();
+     const startDay = firstDayOfMonth.getDay(); // 0 = Sun
+     const days = [];
+     
+     for (let i = 0; i < startDay; i++) {
+        days.push(<div key={`empty-${i}`} className="h-32 bg-gray-50/50"></div>);
+     }
+
+     const activeListing = myListings.find(l => l.id === calendarListing);
+     const slots = activeListing ? getSlotsForDuration(activeListing.duration) : ['full_day'];
+     const isSplitDay = slots.length > 1;
+
+     for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${year}-${String(month+1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const dateObj = new Date(dateStr + 'T00:00:00');
+        const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dateObj.getDay()];
+        const isOpDay = activeListing?.operatingDays.includes(dayName);
+        
+        days.push(
+           <div key={d} className={`h-32 rounded-xl border border-gray-200 overflow-hidden relative ${!isOpDay ? 'bg-gray-100 opacity-50' : 'bg-white'}`}>
+              <div className="absolute top-1 left-2 text-xs font-bold text-gray-500 z-10 flex justify-between w-full pr-4">
+                 <span>{d}</span>
+                 {isOpDay && <button onClick={() => setManualWalkInDate(dateStr)} className="text-teal-600 hover:underline text-[10px]">+ Walk-in</button>}
+              </div>
+
+              {/* Slots Grid */}
+              <div className="h-full flex flex-col pt-6">
+                 {slots.map(slot => {
+                     const block = calendarBlocks.find(b => b.date === dateStr && (b.timeSlot === slot || b.timeSlot === 'full_day'));
+                     const isBlocked = !!block;
+                     const isSynced = block?.source === 'ical';
+                     
+                     // Calculate Guests for this slot
+                     const guests = calendarOccupancy
+                        .filter(o => o.date === dateStr && (o.slot === slot || o.slot === 'full_day'))
+                        .reduce((sum, o) => sum + o.guests, 0);
+                     
+                     let bg = 'bg-white hover:bg-gray-50';
+                     if (isSynced) bg = 'bg-purple-50';
+                     else if (isBlocked) bg = 'bg-red-50';
+                     else if (guests > 0) bg = 'bg-green-50';
+
+                     return (
+                        <div 
+                            key={slot} 
+                            onClick={() => isOpDay && handleBlockSlot(dateStr, slot as TimeSlot, isBlocked)}
+                            className={`flex-1 flex items-center justify-between px-2 text-[10px] border-t border-gray-100 cursor-pointer transition-colors ${bg}`}
+                        >
+                            <span className="font-bold uppercase text-gray-400">{slot === 'full_day' ? 'All Day' : slot}</span>
+                            {isSynced && <span className="text-purple-600 font-bold">Synced</span>}
+                            {!isSynced && isBlocked && <span className="text-red-500 font-bold">Blocked</span>}
+                            {!isBlocked && guests > 0 && <span className="text-green-600 font-bold">{guests} Guests</span>}
+                        </div>
+                     )
+                 })}
+              </div>
+           </div>
+        );
+     }
+     return days;
+  };
+
+  const initCreate = () => {
+    setEditingId(null);
+    setFormData({
+      title: '', description: '', price: '', duration: '', 
+      location: LOCATIONS[0], category: ActivityCategory.WATER_SPORTS,
+      videoUrl: '', maxCapacity: 20, 
+      operatingDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      latitude: 9.73, longitude: 100.01, externalIcalUrl: ''
+    });
+    setMainImageFile(null);
+    setMainImagePreview(null);
+    setExistingMainImage(null);
+    setGalleryFiles([]);
+    setGalleryPreviews([]);
+    setExistingGallery([]);
+    setVideoFile(null);
+    setActiveTab('create');
+  };
+
+  const handleEdit = (listing: Listing) => {
+    setEditingId(listing.id);
+    setFormData({
+      title: listing.title, description: listing.description, price: listing.price.toString(),
+      location: listing.location, category: listing.category, duration: listing.duration,
+      videoUrl: listing.videoUrl || '', maxCapacity: listing.maxCapacity || 20,
+      operatingDays: listing.operatingDays || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      latitude: listing.latitude || 9.73, longitude: listing.longitude || 100.01,
+      externalIcalUrl: listing.externalIcalUrl || ''
+    });
+    setExistingMainImage(listing.imageUrl);
+    setMainImagePreview(listing.imageUrl);
+    setMainImageFile(null);
+    setExistingGallery(listing.galleryUrls || []);
+    setGalleryFiles([]);
+    setGalleryPreviews([]);
+    setActiveTab('create');
+  };
+
+  const handleMainImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setMainImageFile(file);
+      setMainImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleGalleryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files) as File[];
+      setGalleryFiles(prev => [...prev, ...files]);
+      const newPreviews = files.map(file => URL.createObjectURL(file));
+      setGalleryPreviews(prev => [...prev, ...newPreviews]);
+    }
+  };
+
+  const removeExistingGalleryImage = (urlToRemove: string) => {
+    setExistingGallery(prev => prev.filter(url => url !== urlToRemove));
+  };
+
+  const removeNewGalleryFile = (index: number) => {
+    setGalleryFiles(prev => prev.filter((_, i) => i !== index));
+    setGalleryPreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+       const file = e.target.files[0];
+       setVideoFile(file);
+       setFormData(prev => ({ ...prev, videoUrl: '' }));
+    }
+  };
+
+  const toggleDay = (day: string) => {
+    setFormData(prev => {
+      const exists = prev.operatingDays.includes(day);
+      let newDays = exists ? prev.operatingDays.filter(d => d !== day) : [...prev.operatingDays, day];
+      return { ...prev, operatingDays: DAYS_OF_WEEK.filter(d => newDays.includes(d)) };
+    });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setErrorMsg(null);
+    if (!mainImageFile && !existingMainImage) { setErrorMsg("Please select a main cover image."); return; }
+    if (formData.operatingDays.length === 0) { setErrorMsg("Please select at least one operating day."); return; }
+
+    setIsSubmitting(true);
+    setUploadStatus('Processing...');
+    
+    try {
+      let mainImageUrl = existingMainImage || '';
+      if (mainImageFile) {
+        setUploadStatus('Uploading cover image...');
+        const url = await uploadFile(mainImageFile, 'main');
+        if (url) mainImageUrl = url;
+      }
+
+      const galleryUrls: string[] = [...existingGallery];
+      if (galleryFiles.length > 0) {
+        setUploadStatus(`Uploading ${galleryFiles.length} gallery images...`);
+        // Parallel upload for speed
+        const results = await Promise.all(galleryFiles.map(f => uploadFile(f, 'gallery')));
+        results.forEach(url => { if(url) galleryUrls.push(url); });
+      }
+
+      let finalVideoUrl = formData.videoUrl;
+      if (videoFile) {
+        setUploadStatus('Uploading video...');
+        const vidUrl = await uploadFile(videoFile, 'videos');
+        if (vidUrl) finalVideoUrl = vidUrl;
+      }
+
+      setUploadStatus('Saving to database...');
+      const listingPayload = {
+        title: formData.title, description: formData.description, price: Number(formData.price),
+        location: formData.location, category: formData.category as ActivityCategory,
+        imageUrl: mainImageUrl, vendorName: profile?.fullName || 'Vendor',
+        duration: formData.duration, videoUrl: finalVideoUrl, galleryUrls: galleryUrls,
+        maxCapacity: formData.maxCapacity, operatingDays: formData.operatingDays,
+        latitude: formData.latitude, longitude: formData.longitude,
+        externalIcalUrl: formData.externalIcalUrl
+      };
+
+      if (editingId) {
+        const updated = await updateListing(editingId, listingPayload);
+        if (updated) { alert("Listing updated successfully!"); loadMyListings(); setActiveTab('listings'); }
+        else throw new Error("Update failed.");
+      } else {
+        const createdListing = await createListing(listingPayload, user.id);
+        if (createdListing) { onAddListing(createdListing); alert("Listing published!"); initCreate(); setActiveTab('listings'); }
+        else throw new Error("Creation failed.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || "An unknown error occurred.");
+    } finally {
+      setIsSubmitting(false);
+      setUploadStatus('');
+    }
+  };
+
+  if (loading) return <div className="h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-teal-500" /></div>;
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-20">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex flex-col md:flex-row justify-between items-end mb-10">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2 tracking-tight">Vendor Dashboard</h1>
+            <p className="text-gray-500">Manage your business, bookings, and listings from one place.</p>
+          </div>
+          <div className="flex bg-white p-1.5 rounded-xl shadow-sm border border-gray-200 mt-4 md:mt-0">
+            {['bookings', 'listings', 'calendar', 'create'].map((tab: any) => (
+               <button 
+                 key={tab} 
+                 onClick={() => tab === 'create' ? initCreate() : setActiveTab(tab)} 
+                 className={`px-5 py-2 rounded-lg text-sm font-medium capitalize transition-all duration-200 ${activeTab === tab ? 'bg-teal-50 text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}
+               >
+                 {tab}
+               </button>
+            ))}
+          </div>
+        </div>
+
+        {activeTab === 'bookings' && (
+          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+             <div className="p-6 border-b border-gray-100">
+                <h2 className="text-lg font-bold text-gray-900">Incoming Reservations</h2>
+             </div>
+             {bookings.length > 0 ? bookings.map(b => (
+                <div key={b.id} className="p-6 border-b border-gray-50 hover:bg-gray-50 transition-colors flex justify-between items-center">
+                   <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-teal-100 flex items-center justify-center text-teal-600 font-bold">
+                        {b.customerName.charAt(0)}
+                      </div>
+                      <div>
+                          <h3 className="font-bold text-gray-900">{b.listingTitle}</h3>
+                          <p className="text-sm text-gray-500 flex items-center gap-2">
+                            <Calendar className="w-3 h-3" /> {b.date} • <Users className="w-3 h-3" /> {b.guests} Guests • {b.timeSlot && <span className="bg-gray-200 px-1 rounded text-xs uppercase">{b.timeSlot}</span>}
+                          </p>
+                      </div>
+                   </div>
+                   <span className="font-bold text-gray-900">${b.totalPrice}</span>
+                </div>
+             )) : <div className="p-12 text-center text-gray-400">No bookings yet.</div>}
+          </div>
+        )}
+
+        {activeTab === 'listings' && (
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {myListings.map(l => (
+                 <div key={l.id} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-all group">
+                    <div className="flex justify-between items-start mb-4">
+                        <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-100">
+                             <img src={l.imageUrl} className="w-full h-full object-cover" alt={l.title}/>
+                        </div>
+                        <button onClick={() => handleEdit(l)} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500 hover:text-teal-600">
+                             <Edit className="w-4 h-4" />
+                        </button>
+                    </div>
+                    <h3 className="font-bold text-gray-900 mb-1">{l.title}</h3>
+                    <p className="text-sm text-gray-500 mb-4 line-clamp-1">{l.description}</p>
+                    <div className="flex items-center justify-between text-sm font-medium">
+                        <span className="text-teal-600">${l.price}</span>
+                        <span className="bg-gray-100 px-2 py-1 rounded text-gray-600 text-xs">{l.category}</span>
+                    </div>
+                 </div>
+              ))}
+              <button onClick={initCreate} className="border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center text-gray-400 hover:border-teal-500 hover:text-teal-600 hover:bg-teal-50 transition-all min-h-[200px]">
+                   <Plus className="w-8 h-8 mb-2" />
+                   <span className="font-medium">List New Activity</span>
+              </button>
+           </div>
+        )}
+
+        {activeTab === 'calendar' && (
+           <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden p-8">
+              <div className="flex flex-col md:flex-row justify-between mb-8 items-center gap-4">
+                 <h2 className="text-xl font-bold">Availability Calendar</h2>
+                 <div className="flex gap-2">
+                    <select value={calendarListing} onChange={e => setCalendarListing(e.target.value)} className="border border-gray-200 rounded-lg px-4 py-2 bg-white text-gray-700 outline-none focus:ring-2 focus:ring-teal-500">
+                        {myListings.map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
+                    </select>
+                    <button onClick={handleExportIcal} className="flex items-center gap-1 px-3 py-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 text-sm font-bold">
+                        <Download className="w-4 h-4" /> Export
+                    </button>
+                 </div>
+              </div>
+
+              {/* Manual Walk-in Modal */}
+              {manualWalkInDate && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                      <div className="bg-white p-6 rounded-2xl w-80">
+                          <h3 className="font-bold mb-4">Add Manual Walk-in</h3>
+                          <p className="text-sm text-gray-500 mb-4">Reduce capacity for {manualWalkInDate} without a full booking record.</p>
+                          <div className="flex gap-2 mb-4">
+                            {getSlotsForDuration(myListings.find(l => l.id === calendarListing)?.duration || '').map(s => (
+                                <button key={s} onClick={() => handleAddWalkIn(1, s)} className="flex-1 bg-teal-50 hover:bg-teal-100 text-teal-700 py-2 rounded-lg font-bold capitalize">{s}</button>
+                            ))}
+                          </div>
+                          <button onClick={() => setManualWalkInDate(null)} className="w-full border border-gray-200 py-2 rounded-lg">Cancel</button>
+                      </div>
+                  </div>
+              )}
+
+              {/* Sync Toolbar */}
+              <div className="bg-purple-50 border border-purple-100 p-4 rounded-xl mb-6 flex flex-col md:flex-row items-center gap-4">
+                 <div className="flex items-center gap-2 text-purple-800 font-bold text-sm whitespace-nowrap">
+                    <RefreshCw className="w-4 h-4" /> Sync External Calendar
+                 </div>
+                 <div className="flex-grow w-full">
+                    <label className="flex items-center gap-2 bg-white border border-purple-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-purple-50 transition-colors">
+                         <Upload className="w-4 h-4 text-purple-500" />
+                         <span className="text-sm text-gray-600">Upload .ics file from Google/Airbnb...</span>
+                         <input type="file" accept=".ics" className="hidden" onChange={handleImportIcalFile} />
+                    </label>
+                 </div>
+                 {importStatus && <span className="text-xs font-bold text-purple-600 bg-white px-2 py-1 rounded">{importStatus}</span>}
+              </div>
+
+              {/* Legend */}
+              <div className="flex gap-4 mb-4 justify-center text-xs font-bold flex-wrap">
+                 <span className="flex items-center gap-1"><div className="w-3 h-3 bg-green-50 border border-green-200 rounded"></div> Booked</span>
+                 <span className="flex items-center gap-1"><div className="w-3 h-3 bg-purple-50 border border-purple-200 rounded"></div> Synced</span>
+                 <span className="flex items-center gap-1"><div className="w-3 h-3 bg-red-50 border border-red-200 rounded"></div> Blocked</span>
+                 <span className="flex items-center gap-1 ml-4 text-gray-400 italic">Click any slot to toggle block.</span>
+              </div>
+
+              <div className="grid grid-cols-7 gap-4 text-center mb-4">
+                {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => <div key={d} className="text-xs font-bold text-gray-400 uppercase">{d}</div>)}
+              </div>
+              <div className="grid grid-cols-7 gap-3">{renderCalendar()}</div>
+           </div>
+        )}
+
+        {activeTab === 'create' && (
+          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8 lg:p-12">
+            <div className="max-w-3xl mx-auto">
+                <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">{editingId ? 'Edit Excursion' : 'Create New Listing'}</h2>
+                {errorMsg && <div className="text-red-600 mb-6 bg-red-50 p-4 rounded-xl border border-red-100 flex items-center gap-2"><AlertCircle className="w-5 h-5"/> {errorMsg}</div>}
+                
+                <form onSubmit={handleSubmit} className="space-y-8">
+                
+                <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700">Title</label>
+                    <input required type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none transition-all" placeholder="e.g., Sunset Kayaking Adventure" />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                        <label className="text-sm font-bold text-gray-700">Price (USD)</label>
+                        <div className="relative">
+                             <DollarSign className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                             <input type="number" placeholder="0.00" required value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none" />
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-bold text-gray-700">Max Capacity</label>
+                        <div className="relative">
+                             <Users className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                             <input type="number" placeholder="e.g. 12" required value={formData.maxCapacity} onChange={e => setFormData({...formData, maxCapacity: parseInt(e.target.value)})} className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none" />
+                        </div>
+                    </div>
+                </div>
+
+                 <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700">Duration</label>
+                    <input 
+                        required 
+                        type="text" 
+                        value={formData.duration} 
+                        onChange={e => setFormData({...formData, duration: e.target.value})} 
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none" 
+                        placeholder="e.g. 3 hours, 8 hours" 
+                    />
+                    <p className="text-xs text-gray-500">Note: Durations under 4 hours will automatically enable Morning/Afternoon slots.</p>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700">Location (Pinpoint)</label>
+                    <div className="mb-2 text-xs text-gray-500">Click on the map to set the meeting point.</div>
+                    <VendorLocationPicker 
+                        lat={formData.latitude} 
+                        lng={formData.longitude} 
+                        onChange={(lat, lng) => setFormData({...formData, latitude: lat, longitude: lng})} 
+                    />
+                </div>
+
+                <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700">Description</label>
+                    <textarea placeholder="Describe the experience in detail..." required value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none" rows={5} />
+                </div>
+                
+                {/* Media Section */}
+                <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 space-y-6">
+                    <h3 className="font-bold text-gray-900 flex items-center gap-2"><ImageIcon className="w-5 h-5 text-teal-600" /> Media Gallery</h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                             <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Cover Image</label>
+                             <div className="relative aspect-video bg-white rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden group hover:border-teal-500 transition-colors">
+                                {mainImagePreview ? (
+                                    <img src={mainImagePreview} alt="Preview" className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="text-center text-gray-400">
+                                        <UploadCloud className="w-8 h-8 mx-auto mb-2" />
+                                        <span className="text-sm">Click to upload</span>
+                                    </div>
+                                )}
+                                <input type="file" accept="image/*" onChange={handleMainImageChange} className="absolute inset-0 opacity-0 cursor-pointer" />
+                             </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Video (Optional)</label>
+                             <div className="space-y-3">
+                                <input type="text" placeholder="Paste YouTube URL..." value={formData.videoUrl} onChange={e => { setFormData({...formData, videoUrl: e.target.value}); setVideoFile(null); }} className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm" />
+                                <div className="text-center text-xs text-gray-400 font-medium">- OR -</div>
+                                <input type="file" accept="video/mp4" onChange={handleVideoChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100" />
+                             </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-3">Gallery Images</label>
+                        <div className="grid grid-cols-3 md:grid-cols-5 gap-3 mb-4">
+                            {existingGallery.map((url, idx) => (
+                                <div key={`exist-${idx}`} className="relative group rounded-lg overflow-hidden aspect-square bg-white shadow-sm border border-gray-200">
+                                    <img src={url} className="w-full h-full object-cover" alt="Existing" />
+                                    <button type="button" onClick={() => removeExistingGalleryImage(url)} className="absolute top-1 right-1 bg-white/90 text-red-500 p-1 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-sm"><Trash2 className="w-3 h-3" /></button>
+                                </div>
+                            ))}
+                            {galleryPreviews.map((url, idx) => (
+                                <div key={`new-${idx}`} className="relative group rounded-lg overflow-hidden aspect-square bg-white shadow-sm border-2 border-teal-500">
+                                    <img src={url} className="w-full h-full object-cover opacity-90" alt="New" />
+                                    <button type="button" onClick={() => removeNewGalleryFile(idx)} className="absolute top-1 right-1 bg-gray-900 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-all"><X className="w-3 h-3" /></button>
+                                </div>
+                            ))}
+                            <label className="border-2 border-dashed border-gray-300 rounded-lg aspect-square flex flex-col items-center justify-center cursor-pointer hover:border-teal-500 hover:bg-teal-50/50 transition-colors text-gray-400 hover:text-teal-600">
+                                <Plus className="w-6 h-6 mb-1" />
+                                <span className="text-[10px] font-bold uppercase">Add</span>
+                                <input type="file" accept="image/*" multiple onChange={handleGalleryChange} className="hidden" />
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Calendar Sync Settings */}
+                <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100 space-y-4">
+                     <h3 className="font-bold text-purple-900 flex items-center gap-2"><RefreshCw className="w-5 h-5" /> Calendar Sync</h3>
+                     <p className="text-xs text-purple-700">Paste your iCal URL from Airbnb, Booking.com, or Google Calendar to automatically block dates.</p>
+                     <div className="flex gap-2">
+                        <input 
+                            type="text" 
+                            placeholder="https://airbnb.com/calendar/ical/..." 
+                            value={formData.externalIcalUrl}
+                            onChange={e => setFormData({...formData, externalIcalUrl: e.target.value})}
+                            className="flex-grow px-4 py-2 rounded-xl border border-purple-200 text-sm focus:ring-2 focus:ring-purple-500 outline-none"
+                        />
+                     </div>
+                </div>
+
+                <div className="pt-6">
+                    <button type="submit" disabled={isSubmitting} className="w-full bg-gray-900 hover:bg-teal-600 text-white font-bold text-lg py-4 rounded-2xl transition-all shadow-xl transform hover:-translate-y-1 active:scale-[0.98]">
+                        {isSubmitting ? uploadStatus : (editingId ? 'Save Changes' : 'Publish Listing')}
+                    </button>
+                </div>
+                </form>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// --- Booking Modal ---
+const BookingConfirmationModal = ({ listing, onClose }: { listing: Listing; onClose: () => void }) => {
+    const { user } = useAuth();
+    const navigate = useNavigate();
+    const [step, setStep] = useState(1);
+    const [date, setDate] = useState('');
+    const [guests, setGuests] = useState(1);
+    const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
+    
+    const [slots, setSlots] = useState<SlotAvailability[]>([]);
+    const [checking, setChecking] = useState(false);
+    
+    const [name, setName] = useState('');
+    const [email, setEmail] = useState('');
+    const [booking, setBooking] = useState(false);
+
+    useEffect(() => {
+        if (date) {
+            setChecking(true);
+            checkAvailability(listing.id, date, guests).then(res => {
+                setSlots(res);
+                setChecking(false);
+            });
+        }
+    }, [date, guests, listing]);
+
+    const handleBook = async () => {
+        if (!user) { navigate('/login'); return; }
+        setBooking(true);
+        const success = await createBooking({
+            listingId: listing.id, listingTitle: listing.title,
+            customerName: name || user.email, customerEmail: email || user.email,
+            customerId: user.id, vendorId: listing.vendorId,
+            date, guests, totalPrice: listing.price * guests,
+            timeSlot: selectedSlot || 'full_day'
+        });
+        setBooking(false);
+        if (success) setStep(3);
+        else alert("Booking failed. Please try again.");
+    };
+
+    return (
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+                {step === 1 && (
+                    <div className="p-8">
+                        <div className="flex justify-between items-center mb-8">
+                            <div>
+                                <h2 className="text-2xl font-bold text-gray-900">Select Dates</h2>
+                                <p className="text-gray-500 text-sm">${listing.price} / person</p>
+                            </div>
+                            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
+                        </div>
+                        <div className="space-y-6">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Date</label>
+                                <input type="date" min={new Date().toISOString().split('T')[0]} value={date} onChange={e => { setDate(e.target.value); setSelectedSlot(null); }} className="w-full p-4 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Guests</label>
+                                <div className="relative">
+                                    <select value={guests} onChange={e => setGuests(parseInt(e.target.value))} className="w-full p-4 rounded-xl border border-gray-200 bg-white text-gray-900 appearance-none focus:ring-2 focus:ring-teal-500 outline-none">
+                                        {[...Array(10)].map((_, i) => <option key={i+1} value={i+1}>{i+1} Guests</option>)}
+                                    </select>
+                                    <div className="absolute right-4 top-4 pointer-events-none text-gray-500"><Users className="w-5 h-5"/></div>
+                                </div>
+                            </div>
+                            
+                            {date && (
+                                <div className="space-y-2">
+                                    <label className="block text-sm font-bold text-gray-700">Time Slot</label>
+                                    {checking ? (
+                                        <div className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="animate-spin w-4 h-4"/> Checking schedule...</div>
+                                    ) : slots.length > 0 ? (
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {slots.map(s => (
+                                                <button
+                                                    key={s.slot}
+                                                    onClick={() => s.available && setSelectedSlot(s.slot)}
+                                                    disabled={!s.available}
+                                                    className={`p-3 rounded-xl text-sm font-bold capitalize transition-all border-2 ${
+                                                        !s.available 
+                                                            ? 'bg-gray-50 border-gray-100 text-gray-400 cursor-not-allowed' 
+                                                            : selectedSlot === s.slot 
+                                                                ? 'bg-teal-50 border-teal-500 text-teal-700 shadow-sm' 
+                                                                : 'bg-white border-gray-200 text-gray-700 hover:border-teal-500'
+                                                    }`}
+                                                >
+                                                    <div className="flex justify-between items-center">
+                                                        <span>{s.slot.replace('_', ' ')}</span>
+                                                        {!s.available && <span className="text-[10px] uppercase text-red-400">Full</span>}
+                                                    </div>
+                                                    {s.available && <div className="text-[10px] font-normal opacity-70">{s.remainingSpots} left</div>}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                         <div className="text-sm text-red-500 flex items-center gap-2"><AlertCircle className="w-4 h-4"/> Not operating on this date.</div>
+                                    )}
+                                </div>
+                            )}
+
+                            <button disabled={!selectedSlot} onClick={() => setStep(2)} className="w-full bg-gray-900 hover:bg-teal-600 text-white py-4 rounded-xl font-bold text-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">Continue</button>
+                        </div>
+                    </div>
+                )}
+                {step === 2 && (
+                    <div className="p-8">
+                         <h2 className="text-2xl font-bold text-gray-900 mb-6">Confirm Details</h2>
+                         <div className="space-y-4 mb-8">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-gray-500 uppercase">Full Name</label>
+                                <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full p-3 border border-gray-200 rounded-xl bg-white text-gray-900" />
+                            </div>
+                             <div className="space-y-2">
+                                <label className="text-xs font-bold text-gray-500 uppercase">Email Address</label>
+                                <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-3 border border-gray-200 rounded-xl bg-white text-gray-900" />
+                            </div>
+                            
+                            <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 mt-4">
+                                <h3 className="font-bold text-gray-900 mb-4 border-b border-gray-200 pb-2">Order Summary</h3>
+                                <div className="flex justify-between mb-2 text-gray-600"><span>{listing.title}</span><span>${listing.price} x {guests}</span></div>
+                                <div className="flex justify-between mb-2 text-gray-600 capitalize"><span>Time Slot</span><span>{selectedSlot?.replace('_', ' ')}</span></div>
+                                <div className="flex justify-between font-bold text-xl pt-4 border-t border-gray-200 text-gray-900"><span>Total</span><span>${listing.price * guests}</span></div>
+                            </div>
+                         </div>
+                         <div className="flex gap-4">
+                             <button onClick={() => setStep(1)} className="px-6 py-4 rounded-xl font-bold text-gray-600 hover:bg-gray-100 transition-colors">Back</button>
+                             <button onClick={handleBook} disabled={booking} className="flex-1 bg-gray-900 hover:bg-teal-600 text-white py-4 rounded-xl font-bold text-lg transition-colors disabled:opacity-50 shadow-lg flex justify-center items-center gap-2">
+                                {booking ? <Loader2 className="animate-spin w-5 h-5"/> : <Lock className="w-4 h-4" />}
+                                {booking ? 'Processing...' : 'Pay & Book'}
+                             </button>
+                         </div>
+                    </div>
+                )}
+                {step === 3 && (
+                    <div className="p-12 text-center">
+                        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <CheckCircle className="w-10 h-10 text-green-600" />
+                        </div>
+                        <h2 className="text-3xl font-bold text-gray-900 mb-3">You're going!</h2>
+                        <p className="text-gray-500 mb-8 leading-relaxed">Your booking for <strong>{date}</strong> ({selectedSlot?.replace('_',' ')}) is confirmed.</p>
+                        <button onClick={onClose} className="bg-gray-900 text-white px-10 py-4 rounded-xl font-bold hover:bg-teal-600 transition-colors shadow-lg w-full">Done</button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+
+// --- Main App Component ---
+const AppContent = () => {
+  const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
+  const { loading } = useAuth();
+
+  // Safety timeout increased to 5s to handle jitter retries smoothly
+  const [showContent, setShowContent] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setShowContent(true), 5000); 
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (loading && !showContent) return <div className="h-screen flex items-center justify-center bg-white"><Loader2 className="w-10 h-10 animate-spin text-teal-600" /></div>;
+
+  return (
+    <div className="min-h-screen bg-gray-50 font-sans text-gray-900 selection:bg-teal-200 selection:text-teal-900 flex flex-col">
+      <Navbar cartCount={0} />
+      <div className="flex-grow">
+        <Routes>
+            <Route path="/" element={<ExplorePage onBook={setSelectedListing} />} />
+            <Route path="/listing/:id" element={<ListingDetailsPage onBook={setSelectedListing} />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/inbox" element={<InboxPage />} />
+            <Route path="/vendor" element={<VendorDashboard onAddListing={()=>{}} />} />
+            <Route path="/trips" element={<CustomerDashboard />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+      <Footer />
+      {selectedListing && <BookingConfirmationModal listing={selectedListing} onClose={() => setSelectedListing(null)} />}
+    </div>
+  );
+};
+
+const App = () => {
+  return (
+    <Router>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </Router>
+  );
+};
+
+export default App;

@@ -1,0 +1,76 @@
+import React, { useRef, useEffect } from 'react';
+import * as L from 'leaflet';
+import { Listing } from '../../types';
+
+// Custom Icon for Map Pins
+const createCustomIcon = () => {
+  return L.divIcon({
+    className: 'custom-div-icon',
+    html: `<div class="w-8 h-8 bg-teal-600 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  });
+};
+
+interface ListingMapProps {
+  listings: Listing[];
+  onSelect: (listing: Listing) => void;
+}
+
+export const ListingMap: React.FC<ListingMapProps> = ({ listings, onSelect }) => {
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    // Init Map if not exists
+    if (!mapInstanceRef.current) {
+      mapInstanceRef.current = L.map(mapContainerRef.current).setView([9.73, 100.01], 11); // Center on Koh Phangan
+
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 19
+      }).addTo(mapInstanceRef.current);
+    }
+
+    const map = mapInstanceRef.current;
+
+    // Clear existing markers
+    map.eachLayer((layer) => {
+      if (layer instanceof L.Marker) {
+        map.removeLayer(layer);
+      }
+    });
+
+    // Add Markers
+    listings.forEach(l => {
+      if (l.latitude && l.longitude) {
+        const marker = L.marker([l.latitude, l.longitude], { icon: createCustomIcon() })
+          .addTo(map)
+          .bindPopup(`
+            <div class="text-center p-1 min-w-[150px]">
+              <img src="${l.imageUrl}" class="w-full h-24 object-cover rounded-lg mb-2" />
+              <h3 class="font-bold text-sm text-gray-900 mb-1">${l.title}</h3>
+              <p class="text-teal-600 font-bold">$${l.price}</p>
+            </div>
+          `);
+
+        marker.on('popupopen', () => {
+          // Optionally scroll card into view or set active state
+        });
+        marker.on('click', () => {
+          // Handle click if needed
+        });
+      }
+    });
+
+    return () => {
+      // Cleanup if needed
+    };
+  }, [listings]);
+
+  return <div ref={mapContainerRef} className="w-full h-full z-0" />;
+};
