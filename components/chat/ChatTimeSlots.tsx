@@ -79,15 +79,15 @@ export const ChatTimeSlots: React.FC<ChatTimeSlotsProps> = ({
     });
   };
 
-  // Get slot color based on availability
+  // Get slot color based on availability - cleaner styling
   const getSlotStyle = (slot: typeof slots[0]) => {
     if (slot.available === 0) {
-      return 'bg-gray-100 text-gray-400 cursor-not-allowed';
+      return 'bg-gray-50 dark:bg-gray-800 text-gray-400 cursor-not-allowed border border-gray-200 dark:border-gray-700';
     }
     if (slot.available <= 2) {
-      return 'bg-amber-50 text-amber-800 hover:bg-amber-100 cursor-pointer border-amber-200';
+      return 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30 cursor-pointer border border-amber-200 dark:border-amber-700';
     }
-    return 'bg-green-50 text-green-800 hover:bg-green-100 cursor-pointer border-green-200';
+    return 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900/30 cursor-pointer border border-teal-200 dark:border-teal-700';
   };
 
   const canScrollLeft = dateStartIndex > 0;
@@ -103,98 +103,84 @@ export const ChatTimeSlots: React.FC<ChatTimeSlotsProps> = ({
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-teal-500 to-cyan-500 px-4 py-3">
-        <h4 className="font-medium text-white text-sm">{listingTitle}</h4>
-        <p className="text-teal-100 text-xs mt-0.5">Select a time to book</p>
+    <div className="space-y-3">
+      {/* Header - inline style */}
+      <div className="flex items-center justify-between">
+        <h4 className="font-medium text-gray-900 dark:text-gray-100 text-sm">{listingTitle}</h4>
+        <span className="text-xs text-gray-500 dark:text-gray-400">Select a time</span>
       </div>
 
       {/* Date Picker */}
-      <div className="border-b border-gray-100 p-3">
-        <div className="flex items-center gap-1">
-          {/* Left Arrow */}
-          <button
-            onClick={() => setDateStartIndex(Math.max(0, dateStartIndex - 7))}
-            disabled={!canScrollLeft}
-            className={`p-1 rounded-full transition-colors ${
-              canScrollLeft
-                ? 'hover:bg-gray-100 text-gray-600'
-                : 'text-gray-300 cursor-not-allowed'
-            }`}
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
+      <div className="flex items-center gap-1">
+        {/* Left Arrow */}
+        <button
+          onClick={() => setDateStartIndex(Math.max(0, dateStartIndex - 7))}
+          disabled={!canScrollLeft}
+          className={`p-1.5 rounded-full transition-colors ${
+            canScrollLeft
+              ? 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'
+              : 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+          }`}
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
 
-          {/* Date Buttons */}
-          <div className="flex-1 flex gap-1 justify-center overflow-hidden">
-            {visibleDates.map((date) => {
-              const { dayName, dayNum } = formatDate(date);
-              const isSelected = date === selectedDate;
-              const hasSlots = slotsByDate[date]?.some((s) => s.available > 0);
+        {/* Date Buttons */}
+        <div className="flex-1 flex gap-1.5 justify-center overflow-hidden">
+          {visibleDates.map((date) => {
+            const { dayName, dayNum } = formatDate(date);
+            const isSelected = date === selectedDate;
+            const hasSlots = slotsByDate[date]?.some((s) => s.available > 0);
 
-              return (
-                <button
-                  key={date}
-                  onClick={() => setSelectedDate(date)}
-                  className={`flex flex-col items-center px-2 py-1.5 rounded-lg transition-all min-w-[44px] ${
-                    isSelected
-                      ? 'bg-teal-500 text-white'
-                      : hasSlots
-                      ? 'bg-gray-50 hover:bg-gray-100 text-gray-700'
-                      : 'bg-gray-50 text-gray-400'
-                  }`}
-                >
-                  <span className="text-[10px] font-medium uppercase">{dayName}</span>
-                  <span className="text-sm font-bold">{dayNum}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Right Arrow */}
-          <button
-            onClick={() => setDateStartIndex(Math.min(dates.length - 7, dateStartIndex + 7))}
-            disabled={!canScrollRight}
-            className={`p-1 rounded-full transition-colors ${
-              canScrollRight
-                ? 'hover:bg-gray-100 text-gray-600'
-                : 'text-gray-300 cursor-not-allowed'
-            }`}
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
+            return (
+              <button
+                key={date}
+                onClick={() => setSelectedDate(date)}
+                className={`flex flex-col items-center px-2.5 py-2 rounded-lg transition-all min-w-[48px] ${
+                  isSelected
+                    ? 'bg-teal-600 text-white shadow-sm'
+                    : hasSlots
+                    ? 'bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700'
+                    : 'bg-gray-50 dark:bg-gray-800 text-gray-400 border border-gray-100 dark:border-gray-700'
+                }`}
+              >
+                <span className="text-[10px] font-medium uppercase">{dayName}</span>
+                <span className="text-sm font-bold">{dayNum}</span>
+              </button>
+            );
+          })}
         </div>
+
+        {/* Right Arrow */}
+        <button
+          onClick={() => setDateStartIndex(Math.min(dates.length - 7, dateStartIndex + 7))}
+          disabled={!canScrollRight}
+          className={`p-1.5 rounded-full transition-colors ${
+            canScrollRight
+              ? 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'
+              : 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+          }`}
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Time Slots */}
-      <div className="p-3">
-        <p className="text-xs text-gray-500 mb-2">{formatFullDate(selectedDate)}</p>
-        <div className="grid grid-cols-2 gap-2">
+      <div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{formatFullDate(selectedDate)}</p>
+        <div className="flex flex-wrap gap-2">
           {slotsByDate[selectedDate]?.map((slot) => (
             <button
               key={slot.id}
               onClick={() => slot.available > 0 && onSelectSlot(slot)}
               disabled={slot.available === 0}
-              className={`flex items-center gap-2 p-2.5 rounded-lg border text-left transition-all ${getSlotStyle(
-                slot
-              )}`}
+              className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${getSlotStyle(slot)}`}
             >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="font-medium text-sm">{slot.startTime}</span>
-                </div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Users className="w-3 h-3 flex-shrink-0 opacity-60" />
-                  <span className="text-xs">
-                    {slot.available > 0 ? `${slot.available} spots` : 'Full'}
-                  </span>
-                </div>
-              </div>
-              <div className="text-[10px] font-medium bg-white/50 px-1.5 py-0.5 rounded">
-                {slot.booked}/{slot.capacity}
-              </div>
+              <Clock className="w-3.5 h-3.5" />
+              <span className="font-medium">{slot.startTime}</span>
+              <span className="text-xs opacity-75">
+                {slot.available > 0 ? `${slot.available} left` : 'Full'}
+              </span>
             </button>
           ))}
         </div>

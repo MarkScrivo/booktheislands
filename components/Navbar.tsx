@@ -53,7 +53,16 @@ export const Navbar: React.FC<NavbarProps> = ({ cartCount = 0 }) => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center">
           <div className="flex items-center">
-            <Link to="/" className={`flex items-center gap-2 text-2xl font-bold tracking-tight ${logoClass}`}>
+            <Link
+              to="/"
+              onClick={() => {
+                // If already on home, force a page refresh to reset state
+                if (location.pathname === '/') {
+                  window.location.reload();
+                }
+              }}
+              className={`flex items-center gap-2 text-2xl font-bold tracking-tight ${logoClass}`}
+            >
               <Palmtree className="w-8 h-8 text-teal-500" />
               Book The Islands
             </Link>
