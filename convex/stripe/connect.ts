@@ -266,12 +266,10 @@ export const createConnectAccount = action({
       apiVersion: "2024-11-20.acacia",
     });
 
-    // Create Express account
+    // Create Express account for Thai vendors
     const account = await stripe.accounts.create({
       type: "express",
-      country: "US", // United States - fully supported for instant payout approval
-      // TODO: Add country selection in vendor profile to support multiple countries (TH, GB, AU, etc.)
-      // Note: Thailand (TH) requires manual Stripe approval for payouts capability
+      country: "TH", // Thailand - supports PromptPay and local bank transfers
       email: profile.email,
       capabilities: {
         card_payments: { requested: true },
@@ -286,26 +284,12 @@ export const createConnectAccount = action({
           },
         },
       },
-      // In test mode, prefill with test data to avoid verification requirements
+      // In test mode, prefill with Thai test data
       ...(process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') && {
         individual: {
           email: profile.email,
           first_name: profile.fullName?.split(' ')[0] || 'Test',
           last_name: profile.fullName?.split(' ').slice(1).join(' ') || 'User',
-          dob: {
-            day: 1,
-            month: 1,
-            year: 1990,
-          },
-          address: {
-            line1: '123 Test St',
-            city: 'San Francisco',
-            state: 'CA',
-            postal_code: '94102',
-            country: 'US',
-          },
-          ssn_last_4: '0000', // Test SSN
-          phone: '+16505551234',
         },
       }),
     });

@@ -101,7 +101,7 @@ export const PaymentForm: React.FC<PaymentFormProps> = ({
             <CreditCard className="w-5 h-5" />
             <span className="font-bold">Payment Amount</span>
           </div>
-          <div className="text-2xl font-bold text-teal-900">${amount.toFixed(2)}</div>
+          <div className="text-2xl font-bold text-teal-900">฿{amount.toFixed(2)}</div>
         </div>
       </div>
 
@@ -117,12 +117,12 @@ export const PaymentForm: React.FC<PaymentFormProps> = ({
           </p>
         </div>
 
-        {/* Real Stripe Payment Element */}
+        {/* Real Stripe Payment Element - shows all available methods including PromptPay */}
         <div className="min-h-[200px]">
           <PaymentElement
             options={{
               layout: 'tabs',
-              paymentMethodOrder: ['card'],
+              paymentMethodOrder: ['card', 'promptpay'],
             }}
           />
         </div>
@@ -170,7 +170,7 @@ export const PaymentForm: React.FC<PaymentFormProps> = ({
           ) : (
             <>
               <Lock className="w-4 h-4" />
-              Pay ${amount.toFixed(2)}
+              Pay ฿{amount.toFixed(2)}
             </>
           )}
         </button>

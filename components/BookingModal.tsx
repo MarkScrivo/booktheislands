@@ -125,7 +125,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, pr
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Book {listing.title}</h2>
-                <p className="text-gray-500 dark:text-gray-400 text-sm">${listing.price} / person</p>
+                <p className="text-gray-500 dark:text-gray-400 text-sm">฿{listing.price} / person</p>
               </div>
               <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
                 <X className="w-6 h-6 text-gray-400" />
@@ -199,12 +199,12 @@ export const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, pr
               {/* Price Summary */}
               <div className="bg-teal-50 dark:bg-teal-900/30 p-6 rounded-xl space-y-2">
                 <div className="flex justify-between text-gray-700 dark:text-gray-300">
-                  <span>${listing.price} × {guests} {guests === 1 ? 'guest' : 'guests'}</span>
-                  <span>${listing.price * guests}</span>
+                  <span>฿{listing.price} × {guests} {guests === 1 ? 'guest' : 'guests'}</span>
+                  <span>฿{listing.price * guests}</span>
                 </div>
                 <div className="flex justify-between text-lg font-bold text-gray-900 dark:text-white pt-2 border-t border-teal-200 dark:border-teal-700">
                   <span>Total</span>
-                  <span>${totalAmount}</span>
+                  <span>฿{totalAmount}</span>
                 </div>
               </div>
 
@@ -257,7 +257,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({ listing, onClose, pr
             <div className="mb-6 bg-gray-50 dark:bg-gray-900 p-4 rounded-xl">
               <div className="flex justify-between items-center">
                 <span className="text-gray-700 dark:text-gray-300">Total Amount</span>
-                <span className="text-2xl font-bold text-gray-900 dark:text-white">${totalAmount}</span>
+                <span className="text-2xl font-bold text-gray-900 dark:text-white">฿{totalAmount}</span>
               </div>
             </div>
 
